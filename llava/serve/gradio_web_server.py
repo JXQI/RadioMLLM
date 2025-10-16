@@ -204,6 +204,7 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, request:
     logger.info(f"model_name: {model_name}, worker_addr: {worker_addr}")
 
     # No available worker
+    logger.info(f"{worker_addr}, ++++")
     if worker_addr == "":
         state.messages[-1][-1] = server_error_msg
         yield (state, state.to_gradio_chatbot(), disable_btn, disable_btn, disable_btn, enable_btn, enable_btn)

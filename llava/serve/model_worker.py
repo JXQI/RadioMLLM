@@ -24,7 +24,6 @@ from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_S
 from transformers import TextIteratorStreamer
 from threading import Thread
 
-
 GB = 1 << 30
 
 worker_id = str(uuid.uuid4())[:6]
@@ -65,7 +64,7 @@ class ModelWorker:
         self.tokenizer, self.model, self.image_processor, self.context_len = load_pretrained_model(
             model_path, model_base, self.model_name, load_8bit, load_4bit, device=self.device)
         self.is_multimodal = 'llava' in self.model_name.lower()
-
+        
         if not no_register:
             self.register_to_controller()
             self.heart_beat_thread = threading.Thread(

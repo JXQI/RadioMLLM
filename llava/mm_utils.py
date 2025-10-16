@@ -1,7 +1,9 @@
+import json
+from typing import Dict, List
 from PIL import Image
 from io import BytesIO
 import base64
-import random
+
 import torch
 from transformers import StoppingCriteria
 from llava.constants import IMAGE_TOKEN_INDEX
@@ -17,37 +19,34 @@ def expand2square(pil_img, background_color):
         return pil_img
     elif width > height:
         result = Image.new(pil_img.mode, (width, width), background_color)
-        # sample a random between 0 and (width - height) // 2
-        y_start = random.randint((width - height) // 2, (width - height) // 2 + 1)
-        result.paste(pil_img, (0, y_start))
+        result.paste(pil_img, (0, (width - height) // 2))
         return result
     else:
         result = Image.new(pil_img.mode, (height, height), background_color)
-        # sample a random between 0 and (height - width) // 2
-        x_start = random.randint((height - width) // 2, (height - width) // 2 + 1)
-        result.paste(pil_img, (x_start, 0))
+        result.paste(pil_img, ((height - width) // 2, 0))
         return result
 
 
 def process_images(images, image_processor, model_cfg):
     image_aspect_ratio = getattr(model_cfg, "image_aspect_ratio", None)
     new_images = []
-    for image in images:
-        if image_aspect_ratio == 'pad':
-            if image.mode=='L':
-                background_color = int(255*sum(image_processor.image_mean)/len(image_processor.image_mean))
-            else:
-                background_color = tuple(int(x*255) for x in image_processor.image_mean)
-            image = expand2square(image, background_color)
-        image = image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
-        new_images.append(image)
+    if image_aspect_ratio == 'pad':
+        for image in images:
+            image = expand2square(image, tuple(int(x*255)
+                                  for x in image_processor.image_mean))
+            image = image_processor.preprocess(image, return_tensors='pt')[
+                'pixel_values'][0]
+            new_images.append(image)
+    else:
+        return image_processor(images, return_tensors='pt')['pixel_values']
     if all(x.shape == new_images[0].shape for x in new_images):
         new_images = torch.stack(new_images, dim=0)
     return new_images
 
 
 def tokenizer_image_token(prompt, tokenizer, image_token_index=IMAGE_TOKEN_INDEX, return_tensors=None):
-    prompt_chunks = [tokenizer(chunk).input_ids for chunk in prompt.split('<image>')]
+    prompt_chunks = [
+        tokenizer(chunk).input_ids for chunk in prompt.split('<image>')]
 
     def insert_separator(X, sep):
         return [ele for sublist in zip(X, [sep]*len(X)) for ele in sublist][:-1]
@@ -76,6 +75,7 @@ def get_model_name_from_path(model_path):
     else:
         return model_paths[-1]
 
+
 class KeywordsStoppingCriteria(StoppingCriteria):
     def __init__(self, keywords, tokenizer, input_ids):
         self.keywords = keywords
@@ -92,12 +92,15 @@ class KeywordsStoppingCriteria(StoppingCriteria):
         self.start_len = input_ids.shape[1]
 
     def call_for_batch(self, output_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
-        offset = min(output_ids.shape[1] - self.start_len, self.max_keyword_len)
-        self.keyword_ids = [keyword_id.to(output_ids.device) for keyword_id in self.keyword_ids]
+        offset = min(output_ids.shape[1] -
+                     self.start_len, self.max_keyword_len)
+        self.keyword_ids = [keyword_id.to(
+            output_ids.device) for keyword_id in self.keyword_ids]
         for keyword_id in self.keyword_ids:
             if (output_ids[0, -keyword_id.shape[0]:] == keyword_id).all():
                 return True
-        outputs = self.tokenizer.batch_decode(output_ids[:, -offset:], skip_special_tokens=True)[0]
+        outputs = self.tokenizer.batch_decode(
+            output_ids[:, -offset:], skip_special_tokens=True)[0]
         for keyword in self.keywords:
             if keyword in outputs:
                 return True
@@ -106,5 +109,46 @@ class KeywordsStoppingCriteria(StoppingCriteria):
     def __call__(self, output_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
         outputs = []
         for i in range(output_ids.shape[0]):
-            outputs.append(self.call_for_batch(output_ids[i].unsqueeze(0), scores))
+            outputs.append(self.call_for_batch(
+                output_ids[i].unsqueeze(0), scores))
         return all(outputs)
+
+
+def reorganize_source_for_tool_use(source: List[Dict]):
+    """
+    merge thoughts, actions, value into value, and add prefixs to value.
+
+    Args:
+        source (List[Dict]): A list of dict, each dict is a conversation, has keys: from, value, Optional[thoughts, actions, ...]
+
+    Returns:
+        List[Dict]: A list of dict, each dict is a conversation, has keys: from, value, ...
+            value is a string with thougths and value merged, with prefixs.
+    """
+    new_source = []
+    for conv in source:
+        if conv['from'].lower() == 'human':
+            new_source.append(conv)
+            continue
+        mid_sentence = ""
+        if "thoughts" in conv:
+            mid_sentence = mid_sentence + \
+                "\"{}\" {}".format("thoughts🤔", conv["thoughts"]) + "\n"
+            conv.pop("thoughts")
+        if "actions" in conv:
+            mid_sentence = mid_sentence + \
+                "\"{}\" {}".format(
+                    "actions🚀", json.dumps(conv["actions"])) + "\n"
+            conv.pop("actions")
+        if "value" in conv:
+            mid_sentence = mid_sentence + \
+                "\"{}\" {}".format("value👉", conv["value"]) + "\n"
+            conv.pop("value")
+        conv['value'] = mid_sentence
+        new_source.append(conv)
+    return new_source
+
+
+def reorganize_source_for_tool_use_batch(sources: List[List[Dict]]):
+    # batch version of reorganize_source_for_tool_use
+    return [reorganize_source_for_tool_use(source) for source in sources]

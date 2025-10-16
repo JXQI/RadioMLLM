@@ -5,12 +5,12 @@ from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig
 
 
 class CLIPVisionTower(nn.Module):
-    def __init__(self, vision_tower, args, delay_load=False):
+    def __init__(self, mm_vision_tower, args, delay_load=False):
         super().__init__()
 
         self.is_loaded = False
 
-        self.vision_tower_name = vision_tower
+        self.vision_tower_name = mm_vision_tower
         self.select_layer = args.mm_vision_select_layer
         self.select_feature = getattr(args, 'mm_vision_select_feature', 'patch')
 
@@ -20,6 +20,9 @@ class CLIPVisionTower(nn.Module):
             self.cfg_only = CLIPVisionConfig.from_pretrained(self.vision_tower_name)
 
     def load_model(self):
+        if self.is_loaded:
+            print('{} is already loaded, load_model called again, skipping.'.format(self.vision_tower_name))
+            return
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
         self.vision_tower = CLIPVisionModel.from_pretrained(self.vision_tower_name)
         self.vision_tower.requires_grad_(False)
