@@ -9,6 +9,7 @@ import re
 import torchvision.transforms.functional as F
 
 def parse_tool_output(text):
+    print(text)
     try:
         pattern = r'"thoughts🤔"(.*)"actions🚀"(.*)"value👉"(.*)'
         matches = re.findall(pattern, text, re.DOTALL)
@@ -18,6 +19,7 @@ def parse_tool_output(text):
         # print(e)
         matches = None
         return matches
+    print(matches)
     return matches
 
 
@@ -42,6 +44,7 @@ def get_placehold(text):
     return res
 
 def parse_msg(msg):
+    print(msg, "++++++++")
     if len(msg) == 3:
         return msg[0], msg[1], msg[2], None
     if len(msg) == 4:
@@ -189,6 +192,10 @@ class Conversation:
             #         ret += ""
         else:
             raise ValueError(f"Invalid style: {self.sep_style}")
+
+        print("g++++++++++")
+        print(ret, "======", messages)
+        print("g----------")
 
         return ret
 
@@ -671,7 +678,7 @@ conv_mistral_instruct = Conversation(
     sep2="</s>",
 )
 
-default_conversation = conv_vicuna_v1
+default_conversation = conv_mistral_instruct
 conv_templates = {
     "default": conv_vicuna_v0,
     "v0": conv_vicuna_v0,

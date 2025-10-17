@@ -39,7 +39,6 @@ def main(args):
         conv_mode = "mpt"
     else:
         conv_mode = "llava_v0"
-    conv_mode = "mistral_instruct"
 
     if args.conv_mode is not None and conv_mode != args.conv_mode:
         print('[WARNING] the auto inferred conversation mode is {}, while `--conv-mode` is {}, using {}'.format(conv_mode, args.conv_mode, args.conv_mode))
