@@ -4,8 +4,8 @@ deepspeed llava/train/train_mem.py \
     --deepspeed ./scripts/zero3.json \
     --model_name_or_path /home/tx-deepocean/data1/jxq/code/MMedAgent_origin/data/llava-med-v1.5-mistral-7b  \
     --version mistral_instruct\
-    --data_path ./train_data_json/example.jsonl \
-    --image_folder ./train_images \
+    --data_path /home/tx-deepocean/data1/jxq/code/structured-report/data/thougts_struct_v2.json \
+    --image_folder /home/tx-deepocean/data1/jxq/code/structured-report/ \
     --vision_tower openai/clip-vit-large-patch14-336 \
     --mm_projector_type mlp2x_gelu \
     --mm_vision_select_layer -2 \
@@ -14,9 +14,9 @@ deepspeed llava/train/train_mem.py \
     --image_aspect_ratio pad \
     --group_by_modality_length False \
     --bf16 True \
-    --output_dir ./checkpoints/llava-med-v1.5-mistral-7b-lora-mistral_instruct-v1 \
+    --output_dir ./checkpoints/llava-med-v1.5-mistral-7b-lora-mistral_instruct-v2 \
     --num_train_epochs 30 \
-    --per_device_train_batch_size 12 \
+    --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 2 \
     --evaluation_strategy "no" \

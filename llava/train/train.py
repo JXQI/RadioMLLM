@@ -316,6 +316,8 @@ def preprocess_multimodal(
 
     for source in sources:
         for sentence in source:
+            if 'value' not in sentence:
+                print(sentence, "+++++\n")
             if DEFAULT_IMAGE_TOKEN in sentence['value']:
                 sentence['value'] = sentence['value'].replace(DEFAULT_IMAGE_TOKEN, '').strip()
                 sentence['value'] = DEFAULT_IMAGE_TOKEN + '\n' + sentence['value']
@@ -694,7 +696,7 @@ class LazySupervisedDataset(Dataset):
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
         sources = self.list_data_dict[i]
-        print(sources, "---", i)
+        # print(sources, "---", i)
         if isinstance(i, int):
             sources = [sources]
         assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME

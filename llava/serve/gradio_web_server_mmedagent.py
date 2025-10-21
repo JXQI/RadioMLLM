@@ -49,8 +49,7 @@ class ImageMask(gr.components.Image):
         # super().__init__(source="upload", tool="boxes", type='pil', interactive=True, **kwargs)
 
     def preprocess(self, x):
-        # import ipdb; ipdb.set_trace()
-
+        import pdb; pdb.set_trace()
         # a hack to get the mask
         if isinstance(x, str):
             im = processing_utils.decode_base64_to_image(x)
@@ -63,7 +62,7 @@ class ImageMask(gr.components.Image):
             mask_b64 = processing_utils.encode_pil_to_base64(mask_pil)
             x = {
                 'image': x,
-                'mask': mask_b64
+                'mask': mask_b64,
             }
 
         res = super().preprocess(x)
@@ -254,6 +253,7 @@ def change_debug_state(state, with_debug_parameter_from_state, request: gr.Reque
 
 def add_text(state, text, image_dict, ref_image_dict, image_process_mode, with_debug_parameter_from_state, request: gr.Request):
     # dict_keys(['image', 'mask'])
+    logger.info(f"--image_dict={image_dict}---")
     if image_dict is not None:
         image = image_dict['image']
     else:
@@ -402,11 +402,11 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
         "top_p": float(top_p),
         "max_new_tokens": min(int(max_new_tokens), 1536),
         "stop": state.sep if state.sep_style in [SeparatorStyle.SINGLE, SeparatorStyle.MPT] else state.sep2,
-        "images": state.get_images(),
+        "images": None,
         "openai_key": api_key  
     }
     logger.info(f"==== request ====\n{pload}\n==== request ====")
-
+    logger.info(f"----{state.messages}-------")
     pload['images'] = state.get_images()
 
     state.messages[-1][-1] = "▌"
@@ -869,7 +869,7 @@ def build_demo(embed_mode):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--port", type=int)
+    parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--controller-url", type=str,
                         default="http://localhost:20001")
     parser.add_argument("--concurrency-count", type=int, default=8)

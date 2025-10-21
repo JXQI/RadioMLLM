@@ -193,9 +193,9 @@ class Conversation:
         else:
             raise ValueError(f"Invalid style: {self.sep_style}")
 
-        print("g++++++++++")
-        print(ret, "======", messages)
-        print("g----------")
+        # print("g++++++++++")
+        # print(ret, "======", messages)
+        # print("g----------")
 
         return ret
 
