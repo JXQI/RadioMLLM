@@ -23,111 +23,28 @@ from gradio_client import utils as client_utils
 
 import requests
 
+import argparse
+import html
+import logging
+import os
+import tempfile
+import time
+from copy import deepcopy
+from glob import glob
+from shutil import rmtree
+from zipfile import ZipFile
+
 from llava.conversation import (default_conversation, conv_templates,
                                 SeparatorStyle)
 from llava.constants import LOGDIR
 from llava.utils import (build_logger, server_error_msg,
                          violates_moderation, moderation_msg)
 import hashlib
-from llava.serve.utils import annotate_xyxy, show_mask
+from llava.serve.utils import annotate_xyxy, show_mask, ImageCache, get_slice_filenames
 
 import pycocotools.mask as mask_util
 
 R = partial(round, ndigits=2)
-
-
-class ImageMask(gr.components.Image):
-    """
-    Sets: source="canvas", tool="sketch"
-    """
-
-    is_template = True
-
-    def __init__(self, **kwargs):
-        super().__init__(source="upload", tool="sketch",
-                         type='pil', interactive=True, **kwargs)
-        # super().__init__(source="upload", tool="boxes", type='pil', interactive=True, **kwargs)
-
-    def preprocess(self, x):
-        import pdb; pdb.set_trace()
-        # a hack to get the mask
-        if isinstance(x, str):
-            im = processing_utils.decode_base64_to_image(x)
-            w, h = im.size
-            # a mask, array, uint8
-            mask_np = np.zeros((h, w, 4), dtype=np.uint8)
-            # to pil
-            mask_pil = Image.fromarray(mask_np, mode='RGBA')
-            # to base64
-            mask_b64 = processing_utils.encode_pil_to_base64(mask_pil)
-            x = {
-                'image': x,
-                'mask': mask_b64,
-            }
-
-        res = super().preprocess(x)
-        # arr -> PIL
-        # res['image'] = Image.fromarray(res['image'])
-        # if os.environ.get('IPDB_SHILONG_DEBUG', None) == 'INFO':
-        #     import ipdb; ipdb.set_trace()
-        return res
-
-
-def get_mask_bbox(mask_img: Image):
-    # convert to np array
-    mask = np.array(mask_img)[..., 0]
-
-    # check if has masks
-    if mask.sum() == 0:
-        return None
-
-    # get coords
-    coords = np.argwhere(mask > 0)
-
-    # calculate bbox
-    y0, x0 = coords.min(axis=0)
-    y1, x1 = coords.max(axis=0) + 1
-
-    # get h and w
-    h, w = mask.shape[:2]
-
-    # norm to [0, 1]
-    x0, y0, x1, y1 = R(x0 / w), R(y0 / h), R(x1 / w), R(y1 / h)
-    return [x0, y0, x1, y1]
-
-
-def plot_boxes(image: Image, res: dict) -> Image:
-    boxes = torch.Tensor(res["boxes"])
-    logits = torch.Tensor(res["logits"]) if 'logits' in res else None
-    phrases = res["phrases"] if 'phrases' in res else None
-    image_source = np.array(image)
-    annotated_frame = annotate_xyxy(
-        image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
-    return Image.fromarray(annotated_frame)
-
-
-def plot_masks(image: Image, res: dict) -> Image:
-    masks_rle = res["masks_rle"]
-    for mask_rle in masks_rle:
-        mask = mask_util.decode(mask_rle)
-        mask = torch.Tensor(mask)
-        image = show_mask(mask, image)
-    return image
-
-
-def plot_points(image: Image, res: dict) -> Image:
-    points = torch.Tensor(res["points"])
-    point_labels = torch.Tensor(res["point_labels"])
-
-    points = np.array(points)
-    point_labels = np.array(point_labels)
-    annotated_frame = np.array(image)
-    h, w = annotated_frame.shape[:2]
-    for i in range(points.shape[1]):
-        color = (0, 255, 0) if point_labels[0, i] == 1 else (0, 0, 255)
-        annotated_frame = cv2.circle(annotated_frame, (int(
-            points[0, i, 0] * w), int(points[0, i, 1] * h)), 5, color, -1)
-    return Image.fromarray(annotated_frame)
 
 
 logger = build_logger("gradio_web_server", "gradio_web_server.log")
@@ -217,7 +134,6 @@ def load_demo(url_params, request: gr.Request):
             gr.Textbox.update(visible=True),
             gr.Button.update(visible=True),
             gr.Row.update(visible=True),
-            gr.Accordion.update(visible=True),
             gr.Accordion.update(visible=True))
 
 
@@ -232,7 +148,6 @@ def load_demo_refresh_model_list(request: gr.Request):
         gr.Textbox.update(visible=True),
         gr.Button.update(visible=True),
         gr.Row.update(visible=True),
-        gr.Accordion.update(visible=True),
         gr.Accordion.update(visible=True))
 
 
@@ -251,11 +166,10 @@ def change_debug_state(state, with_debug_parameter_from_state, request: gr.Reque
     return (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state), "", None) + (debug_btn_update, state_update)
 
 
-def add_text(state, text, image_dict, ref_image_dict, image_process_mode, with_debug_parameter_from_state, request: gr.Request):
+def add_text(state, text, image_dict, image_process_mode, with_debug_parameter_from_state, request: gr.Request):
     # dict_keys(['image', 'mask'])
-    logger.info(f"--image_dict={image_dict}---")
     if image_dict is not None:
-        image = image_dict['image']
+        image = image_dict
     else:
         image = None
     logger.info(f"add_text. ip: {request.client.host}. len: {len(text)}")
@@ -277,31 +191,151 @@ def add_text(state, text, image_dict, ref_image_dict, image_process_mode, with_d
         text = (text, image, image_process_mode)
         state = default_conversation.copy()
 
-        # a hack, for mask
-        sketch_mask = image_dict['mask']
-        if sketch_mask is not None:
-            text = (text[0], text[1], text[2], sketch_mask)
-            # check if visual prompt is used
-            bounding_box = get_mask_bbox(sketch_mask)
-            if bounding_box is not None:
-                text_input_new = text[0] + f"\nInput box: {bounding_box}"
-                text = (text_input_new, text[1], text[2], text[3])
-                
-        if ref_image_dict is not None:
-            # text = (text[0], text[1], text[2], text[3], {
-            #     'ref_image': ref_image_dict['image'],
-            #     'ref_mask': ref_image_dict['mask']
-            # })
-            state.reference_image = b64_encode(ref_image_dict['image'])
-            state.reference_mask = b64_encode(ref_image_dict['mask'])
 
     state.append_message(state.roles[0], text)
     state.append_message(state.roles[1], None)
     state.skip_next = False
-    return (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state), "", None, None) + (disable_btn,) * 6
+    chatbot_info = state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)
+    logger.info(f"chatbot_info: {chatbot_info}")
+    logger.info(f"state==={state}")
+    
+    return (state, chatbot_info, "", None) + (disable_btn,) * 5
+    # return chatbot_info
+
+def add_text1(text):
+    state = default_conversation.copy()
+    state.append_message("kkk", None)
+    state.append_message(state.roles[0], text)
+    state.append_message(state.roles[1], "| ")
+    chatbot_info = state.to_gradio_chatbot()
+    logging.info(chatbot_info)
+    return chatbot_info
+
+IMG_URLS_OR_PATHS = {
+    "CE571001-1965456-30423-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1965456-30423-4.nii.gz",
+    "CE571001-1768995-29744-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1768995-29744-4.nii.gz",
+    "CE571001-1951147-13386582-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1951147-13386582-4.nii.gz",
+    "CE571001-1771535-30158-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1771535-30158-4.nii.gz",
+}
+CACHED_IMAGES = ImageCache(cache_dir='/home/tx-deepocean/data1/jxq/code/VLM-Radiology-Agent-Framework/m3/demo/cache_images/')
+
+EXAMPLE_PROMPTS_3D = [
+    ["该图像中总共有几个结节？"],
+    ["找出该图像中结节体积最大的结节？"],
+    ["找出该图中恶性风险最高的结节．"],
+    ["根据该图诊断结果给出诊断意见"],
+    ["该图中恶性结节有哪些？"],
+    ["找出该图像中结节体积最大的结节？"],
+    ["图中左肺的结节有哪些？"],
+]
+
+EXAMPLE_PROMPTS_2D = [
+    ["What abnormalities are seen in this image?"],
+    ["Is there evidence of edema in this image?"],
+    ["Is there pneumothorax?"],
+    ["What type is the lung opacity?"],
+    ["Which view is this image taken?"],
+    ["Is there evidence of cardiomegaly in this image?"],
+    ["Is the atelectasis located on the left side or right side?"],
+    ["What level is the cardiomegaly?"],
+    ["Describe the image in detail"],
+]
+
+class SessionVariables:
+    """Class to store the session variables"""
+
+    def __init__(self):
+        """Initialize the session variables"""
+        self.slice_index = None  # Slice index for 3D images
+        self.image_url = None  # Image URL to the image on the web
+        self.backup = {}  # Cached varaiables from previous messages for the current conversation
+        self.axis = 2
+        self.top_p = 0.9
+        self.temperature = 0.0
+        self.max_tokens = 1024
+        self.temp_working_dir = None
+        self.idx_range = (None, None)
+        self.interactive = False
+        self.sys_msgs_to_hide = []
+        self.modality_prompt = "Auto"
+        self.img_urls_or_paths = IMG_URLS_OR_PATHS
+
+    def restore_from_backup(self, attr):
+        """Retrieve the attribute from the backup"""
+        attr_val = self.backup.get(attr, None)
+        if attr_val is not None:
+            self.__setattr__(attr, attr_val)
+
+def input_image(image, state: SessionVariables):
+    """Update the session variables with the input image data URL if it's inputted by the user"""
+    logger.debug(f"Received user input image")
+    # TODO: support user uploaded images
+    return image, state
 
 
-def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_debug_parameter_from_state, api_key, request: gr.Request):
+def update_image_selection(selected_image, state: SessionVariables, slice_index=None):
+    """Update the gradio components based on the selected image"""
+    logger.debug(f"Updating display image for {selected_image}")
+    state.image_url = state.img_urls_or_paths.get(selected_image, None)
+    img_file = CACHED_IMAGES.get(state.image_url, None)
+    logger.info(f"====={state.image_url}****{img_file}=========")
+
+    if state.image_url is None or img_file is None:
+        return None, state, gr.Slider(0, 2, 1, step=1, visible=False), [[""]]
+
+    state.interactive = True
+    if img_file.endswith(".nii.gz"):
+        if slice_index is None:
+            slice_file_pttn = img_file.replace(".nii.gz", "_slice*_img.jpg")
+            # glob the image files
+            slice_files = glob(slice_file_pttn)
+            state.slice_index = len(slice_files) // 2
+            state.idx_range = (0, len(slice_files) - 1)
+        else:
+            # Slice index is updated by the slidebar.
+            # There is no need to update the idx_range.
+            state.slice_index = slice_index
+
+        image_filename = get_slice_filenames(img_file, state.slice_index)
+        if not os.path.exists(os.path.join(CACHED_IMAGES.dir(), image_filename)):
+            raise ValueError(f"Image file {image_filename} does not exist.")
+
+        return (
+            os.path.join(CACHED_IMAGES.dir(), image_filename),
+            state,
+            gr.Slider.update(minimum=state.idx_range[0], maximum=state.idx_range[1], value=state.slice_index, step=1, visible=True, interactive=True)
+        )
+
+    state.slice_index = None
+    state.idx_range = (None, None)
+    return (
+        img_file,
+        state,
+        gr.Slider(0, 2, 1, 0, visible=False),
+        gr.Dataset.update(samples=EXAMPLE_PROMPTS_2D),
+    )
+
+def update_temperature(temperature, state):
+    """Update the temperature"""
+    logger.debug(f"Updating the temperature")
+    state.temperature = temperature
+    return state
+
+
+def update_top_p(top_p, state):
+    """Update the top P"""
+    logger.debug(f"Updating the top P")
+    state.top_p = top_p
+    return state
+
+
+def update_max_tokens(max_tokens, state):
+    """Update the max tokens"""
+    logger.debug(f"Updating the max tokens")
+    state.max_tokens = max_tokens
+    return state
+
+def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_debug_parameter_from_state, request: gr.Request):
     logger.info(f"http_bot. ip: {request.client.host}")
     start_tstamp = time.time()
     model_name = model_selector
@@ -352,15 +386,15 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
         #     new_state.roles = tuple(list(new_state.roles) + ["system"])
         # new_state.append_message(new_state.roles[2], f"receive an image with name `{image_name}.jpg`")
 
+        logger.info(f"old-state:{state}")
+
         new_state.append_message(new_state.roles[0], state.messages[-2][1])
         new_state.append_message(new_state.roles[1], None)
         
-        # for reference image
-        new_state.reference_image = getattr(state, 'reference_image', None)
-        new_state.reference_mask = getattr(state, 'reference_mask', None)
-        
         # update
         state = new_state
+
+        logger.info(f"new-state:{state}")
         
         print("Messages：", state.messages)
 
@@ -402,15 +436,16 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
         "top_p": float(top_p),
         "max_new_tokens": min(int(max_new_tokens), 1536),
         "stop": state.sep if state.sep_style in [SeparatorStyle.SINGLE, SeparatorStyle.MPT] else state.sep2,
-        "images": None,
-        "openai_key": api_key  
+        # "images": state.get_images(),
     }
     logger.info(f"==== request ====\n{pload}\n==== request ====")
     logger.info(f"----{state.messages}-------")
     pload['images'] = state.get_images()
 
     state.messages[-1][-1] = "▌"
-    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 6
+    # chatbot_data = state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)
+    # logger.warning(f"chatbot_data: {chatbot_data}")
+    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 5
 
     try:
         # Stream output
@@ -486,7 +521,6 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
             "prompt": prompt,
             "box_threshold": 0.3,
             "text_threshold": 0.25,
-            "openai_key": api_key,
             **tool_cfg[0]['API_params']
         }
         if api_name in ['inpainting']:
@@ -512,61 +546,7 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
             headers=headers,
             json=api_paras,
         ).json()
-        tool_response_clone = copy.deepcopy(tool_response)
         print("tool_response: ", tool_response)
-
-        # clean up the response
-        masks_rle = None
-        edited_image = None
-        image_seg = None  # for openseed
-        iou_sort_masks = None
-        if 'boxes' in tool_response:
-            try:
-                tool_response['boxes'] = [[R(_b) for _b in bb]
-                                        for bb in tool_response['boxes']]
-            except:
-                pass
-        if 'logits' in tool_response:
-            try:
-                tool_response['logits'] = [R(_l) for _l in tool_response['logits']]
-            except:
-                pass
-        if 'scores' in tool_response:
-            try:
-                tool_response['scores'] = [R(_s) for _s in tool_response['scores']]
-            except:
-                pass
-        if "masks_rle" in tool_response:
-            masks_rle = tool_response.pop("masks_rle")
-        if "edited_image" in tool_response:
-            edited_image = tool_response.pop("edited_image")
-        if "size" in tool_response:
-            try:
-                _ = tool_response.pop("size")
-            except:
-                pass
-        if api_name == "easyocr":
-            _ = tool_response.pop("boxes")
-            _ = tool_response.pop("scores")
-        if "retrieval_results" in tool_response:
-            tool_response['retrieval_results'] = [
-                {'caption': i['caption'], 'similarity': R(i['similarity'])}
-                for i in tool_response['retrieval_results']
-            ]
-        if "image_seg" in tool_response:
-            image_seg = tool_response.pop("image_seg")
-        if "iou_sort_masks" in tool_response:
-            iou_sort_masks = tool_response.pop("iou_sort_masks")
-        if len(tool_response) == 0:
-            tool_response['message'] = f"The {api_name} has processed the image."
-        # hack
-        if masks_rle is not None:
-            state.mask_rle = masks_rle[0]
-        if image_seg is not None:
-            state.image_seg = image_seg
-
-        # if edited_image is not None:
-        #     edited_image
 
         # build new response
         new_response = f"{api_name} model outputs: {tool_response}\n\n"
@@ -594,7 +574,6 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
             "max_new_tokens": min(int(max_new_tokens), 1536),
             "stop": state.sep if state.sep_style in [SeparatorStyle.SINGLE, SeparatorStyle.MPT] else state.sep2,
             "images": f'List of {len(state.get_images())} images: {all_image_hash}',
-             "openai_key": api_key
         }
         logger.info(f"==== request ====\n{pload}")
         pload['images'] = state.get_images()
@@ -628,63 +607,6 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
 
         # remove the cursor
         state.messages[-1][-1] = state.messages[-1][-1][:-1]
-
-        # add image(s)
-        if edited_image is not None:
-            edited_image_pil = Image.open(
-                BytesIO(base64.b64decode(edited_image))).convert("RGB")
-            state.messages[-1][-1] = (state.messages[-1]
-                                      [-1], edited_image_pil, "Crop")
-        if image_seg is not None:
-            edited_image_pil = Image.open(
-                BytesIO(base64.b64decode(image_seg))).convert("RGB")
-            state.messages[-1][-1] = (state.messages[-1]
-                                      [-1], edited_image_pil, "Crop")
-        if iou_sort_masks is not None:
-            assert isinstance(
-                iou_sort_masks, list), "iou_sort_masks should be a list, but got: {}".format(iou_sort_masks)
-            edited_image_pil_list = [Image.open(
-                BytesIO(base64.b64decode(i))).convert("RGB") for i in iou_sort_masks]
-            state.messages[-1][-1] = (state.messages[-1]
-                                      [-1], edited_image_pil_list, "Crop")
-        if api_name in ['grounding_dino', 'ram+grounding_dino', 'blip2+grounding_dino', 'grounding dino']:
-            edited_image_pil = Image.open(
-                BytesIO(base64.b64decode(state.get_images()[0]))).convert("RGB")
-            edited_image_pil = plot_boxes(edited_image_pil, tool_response)
-            state.messages[-1][-1] = (state.messages[-1]
-                                      [-1], edited_image_pil, "Crop")
-        if api_name in ['grounding_dino+sam', 'grounded_sam', 'grounding dino + MedSAM']:
-            edited_image_pil = Image.open(
-                BytesIO(base64.b64decode(state.get_images()[0]))).convert("RGB")
-            edited_image_pil = plot_boxes(edited_image_pil, tool_response)
-            edited_image_pil = plot_masks(
-                edited_image_pil, tool_response_clone)
-            state.messages[-1][-1] = (state.messages[-1]
-                                      [-1], edited_image_pil, "Crop")
-        if api_name in ['sam']:
-            if 'points' in tool_cfg[0]['API_params']:
-                edited_image_pil = Image.open(
-                    BytesIO(base64.b64decode(state.get_images()[0]))).convert("RGB")
-                edited_image_pil = plot_masks(
-                    edited_image_pil, tool_response_clone)
-                tool_response_clone['points'] = tool_cfg[0]['API_params']['points']
-                tool_response_clone['point_labels'] = tool_cfg[0]['API_params']['point_labels']
-                edited_image_pil = plot_points(
-                    edited_image_pil, tool_response_clone)
-
-                state.messages[-1][-1] = (state.messages[-1]
-                                          [-1], edited_image_pil, "Crop")
-            else:
-                assert 'boxes' in tool_cfg[0]['API_params'], "not find 'boxes' in {}".format(
-                    tool_cfg[0]['API_params'].keys())
-                edited_image_pil = Image.open(
-                    BytesIO(base64.b64decode(state.get_images()[0]))).convert("RGB")
-                edited_image_pil = plot_boxes(edited_image_pil, tool_response)
-                tool_response_clone['boxes'] = tool_cfg[0]['API_params']['boxes']
-                edited_image_pil = plot_masks(
-                    edited_image_pil, tool_response_clone)
-                state.messages[-1][-1] = (state.messages[-1]
-                                          [-1], edited_image_pil, "Crop")
 
         yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (enable_btn,) * 6
 
@@ -729,9 +651,10 @@ The service is a research preview intended for non-commercial use only, subject 
 
 def build_demo(embed_mode):
     textbox = gr.Textbox(
-        show_label=False, placeholder="Enter text and press ENTER", visible=False, container=False)
+        show_label=False, placeholder="Enter text and press ENTER", visible=True, container=False)
     with gr.Blocks(title="MMedAgent", theme=gr.themes.Base()) as demo:
-        state = gr.State()
+        session_state = gr.State(value=SessionVariables())
+        conv_state = gr.State(value=default_conversation.copy()) 
 
         if not embed_mode:
             gr.Markdown(title_markdown)
@@ -746,29 +669,25 @@ def build_demo(embed_mode):
                         show_label=False,
                         container=False)
 
-                imagebox = ImageMask()
-
-                cur_dir = os.path.dirname(os.path.abspath(__file__))
-
-                with gr.Accordion("Reference Image", open=False, visible=False) as ref_image_row:
-                    gr.Markdown(
-                        "The reference image is for some specific tools, like SEEM.")
-                    ref_image_box = ImageMask()
-                
-                with gr.Accordion("Parameters", open=False, visible=False) as parameter_row:
+                # imagebox = ImageMask()
+                imagebox = gr.Image(label="Image", type='pil')
+                image_dropdown = gr.Dropdown(
+                    label="Select an image", choices=["Please select .."] + list(session_state.value.img_urls_or_paths.keys())
+                )
+                image_slider = gr.Slider(0, 2, 1, step=0, visible=False)
+                with gr.Accordion("Parameters", open=False) as parameter_row:
                     image_process_mode = gr.Radio(
                         ["Crop", "Resize", "Pad"],
                         value="Crop",
                         label="Preprocess for non-square image")
-                    temperature = gr.Slider(
+                    temperature_slider = gr.Slider(
                         minimum=0.0, maximum=1.0, value=0.2, step=0.1, interactive=True, label="Temperature",)
-                    top_p = gr.Slider(
+                    top_p_slider = gr.Slider(
                         minimum=0.0, maximum=1.0, value=0.7, step=0.1, interactive=True, label="Top P",)
-                    max_output_tokens = gr.Slider(
+                    max_tokens_slider = gr.Slider(
                         minimum=0, maximum=2048, value=512, step=64, interactive=True, label="Max output tokens",)
                     # with_debug_parameter_check_box = gr.Checkbox(label="With debug parameter", checked=args.with_debug_parameter)
 
-                api_key_input = gr.Textbox(label="OpenAI API Key", placeholder="Enter your OpenAI API key", type="password")
             with gr.Column(scale=6):
                 chatbot = gr.Chatbot(
                     elem_id="chatbot", label="MMedAgent Chatbot", height=550)
@@ -776,8 +695,8 @@ def build_demo(embed_mode):
                     with gr.Column(scale=8):
                         textbox.render()
                     with gr.Column(scale=1, min_width=60):
-                        submit_btn = gr.Button(value="Submit", visible=False)
-                with gr.Row(visible=False) as button_row:
+                        submit_btn = gr.Button(value="Submit")
+                with gr.Row(visible=True) as button_row:
                     debug_btn = gr.Button(
                         value="Show Progress", interactive=True)
                     # import ipdb; ipdb.set_trace()
@@ -787,78 +706,49 @@ def build_demo(embed_mode):
                     value=args.with_debug_parameter,
                 )
 
-        with gr.Row():
-            with gr.Column():
-                gr.Examples(examples=[
-                    [f"{cur_dir}/examples/cell_00040.bmp",
-                        "Can you find and count how many cells are there in this image?"],
-                    [f"{cur_dir}/examples/0007d316f756b3fa0baea2ff514ce945.jpg",
-                        "Does this x-ray image show a sign of Cardiomegaly? Find the area."],
-                    [f"{cur_dir}/examples/022_083_t1.jpg",
-                    "Find if there is a tumor in this image."]
-                ], inputs=[imagebox, textbox], label="Grounding Examples: ")
-                gr.Examples(examples=[
-                    [f"{cur_dir}/examples/WORD_0072_0290.jpg",
-                        "Can you locate and segment the kidneys, spleen, and liver in this 2D abdominal CT image?"],
-                    [f"{cur_dir}/examples/MCUCXR_0075_0.png",
-                        "Identify the lungs and segment them in this x-ray image."],
-                ], inputs=[imagebox, textbox], label="Grounding + Segmentation Examples: ")
-                
-                
-            with gr.Column():
-                gr.Examples(examples=[
-                    [f"{cur_dir}/examples/0a4fbc9ade84a7abd1680eb8ba031a9d.jpg",
-                    "What is the imaging modality used for this medical image?"],
-                    [f"{cur_dir}/examples/27660471_f14-ott-9-5531.jpg",
-                    "What is the specific type of histopathology depicted in the image?"],
-                    [f"{cur_dir}/examples/32535614_f2-amjcaserep-21-e923356.jpg",
-                    "Can you tell me the modality of this image?"]
-                ], inputs=[imagebox, textbox], label="Image Modality Classification Examples: ")
-                gr.Examples(examples=[
-                    [f"{cur_dir}/examples/chest.jpg",
-                    "Can you generate a report based on this image?"]
-                ], inputs=[imagebox, textbox], label="Medical Report Generation Examples: ")
-                false_report = """
-                               This case highlights a critical oversight in a complex medical situation. While the initial focus on the patient's syncope was well-executed, subsequent findings of a 4.9 cm aortic aneurysm with celiac artery involvement were not sufficiently followed up. 
-                               Comprehensive imaging of the entire aorta at the discovery point was crucial and could have potentially led to a more favorable outcome. It should be noted that the radiologist conducting the pulmonary artery CT scan should have autonomously extended the imaging to the full aorta without needing further orders.
-                               """
-
-                gr.Examples(examples=[
-                    ["I'm suffering from anorexia nervosa. Can you explain it and tell me how to deal with it? Please consult authoritative source."],
-                    ["Analyze this report and retrieve information from an authoritative database:\n"+false_report]],
-                    inputs=[textbox], label="Retrieval Augmented Generation Examples:"
-                )
-
-
-
-
         if not embed_mode:
             gr.Markdown(tos_markdown)
             gr.Markdown(learn_more_markdown)
         url_params = gr.JSON(visible=False)
-
+        imagebox.change(fn=input_image, inputs=[imagebox, session_state], outputs=[imagebox, session_state])
+        image_dropdown.change(
+            fn=update_image_selection,
+            inputs=[image_dropdown, session_state],
+            outputs=[imagebox, session_state, image_slider],
+        )
+        image_slider.release(
+            fn=update_image_selection,
+            inputs=[image_dropdown, session_state, image_slider],
+            outputs=[imagebox, session_state, image_slider],
+        )
+        temperature_slider.change(fn=update_temperature, inputs=[temperature_slider, session_state], outputs=[session_state])
+        top_p_slider.change(fn=update_top_p, inputs=[top_p_slider, session_state], outputs=[session_state])
+        max_tokens_slider.change(fn=update_max_tokens, inputs=[max_tokens_slider, session_state], outputs=[session_state])
+        
         # Register listeners
 
-        textbox.submit(add_text, [state, textbox, imagebox, ref_image_box, image_process_mode, with_debug_parameter_state], 
-                    [state, chatbot, textbox, imagebox, ref_image_box, debug_btn]
-                    ).then(http_bot, [state, model_selector, temperature, top_p, max_output_tokens, with_debug_parameter_state, api_key_input],
-                        [state, chatbot, debug_btn])
+        textbox.submit(add_text, [conv_state, textbox, imagebox, image_process_mode, with_debug_parameter_state], 
+                    [conv_state, chatbot, textbox, imagebox, debug_btn]
+                    ).then(http_bot, [conv_state, model_selector, temperature_slider, top_p_slider, max_tokens_slider, with_debug_parameter_state],
+                        [conv_state, chatbot, debug_btn])
 
-        submit_btn.click(add_text, [state, textbox, imagebox, ref_image_box, image_process_mode, with_debug_parameter_state], 
-                        [state, chatbot, textbox, imagebox, ref_image_box, debug_btn]
-                    ).then(http_bot, [state, model_selector, temperature, top_p, max_output_tokens, with_debug_parameter_state, api_key_input],
-                        [state, chatbot, debug_btn])
+        submit_btn.click(add_text, [conv_state, textbox, imagebox, image_process_mode, with_debug_parameter_state],
+                        [conv_state, chatbot, textbox, imagebox, debug_btn]
+                    ).then(http_bot, [conv_state, model_selector, temperature_slider, top_p_slider, max_tokens_slider, with_debug_parameter_state],
+                        [conv_state, chatbot, debug_btn])
+    
+        # submit_btn.click(add_text1, [textbox], [chatbot])
         
-        debug_btn.click(change_debug_state, [state, with_debug_parameter_state], [
-                        state, chatbot, textbox, imagebox] + [debug_btn, with_debug_parameter_state])
+        debug_btn.click(change_debug_state, [conv_state, with_debug_parameter_state], [
+                        conv_state, chatbot, textbox, imagebox] + [debug_btn, with_debug_parameter_state])
 
         if args.model_list_mode == "once":
-            demo.load(load_demo, [url_params], [state, model_selector,
-                                                chatbot, textbox, submit_btn, button_row, parameter_row, ref_image_row],
+            demo.load(load_demo, [url_params], [conv_state, model_selector,
+                                                chatbot, textbox, submit_btn, button_row, parameter_row],
                       _js=get_window_url_params)
         elif args.model_list_mode == "reload":
-            demo.load(load_demo_refresh_model_list, None, [state, model_selector,
-                                                           chatbot, textbox, submit_btn, button_row, parameter_row, ref_image_row])
+            demo.load(load_demo_refresh_model_list, None, [conv_state, model_selector,
+                                                           chatbot, textbox, submit_btn, button_row, parameter_row])
         else:
             raise ValueError(
                 f"Unknown model list mode: {args.model_list_mode}")
@@ -887,6 +777,7 @@ if __name__ == "__main__":
     models = [i for i in models if 'llava' in i]
 
     logger.info(args)
+    CACHED_IMAGES.cache(IMG_URLS_OR_PATHS)
     demo = build_demo(args.embed)
     _app, local_url, share_url = demo.queue(concurrency_count=args.concurrency_count, status_update_rate=10,
                                             api_open=True).launch(
