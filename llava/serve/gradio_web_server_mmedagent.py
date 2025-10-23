@@ -23,6 +23,8 @@ from gradio_client import utils as client_utils
 
 import requests
 
+from typing import Dict
+
 import argparse
 import html
 import logging
@@ -134,7 +136,8 @@ def load_demo(url_params, request: gr.Request):
             gr.Textbox.update(visible=True),
             gr.Button.update(visible=True),
             gr.Row.update(visible=True),
-            gr.Accordion.update(visible=True))
+            gr.Accordion.update(visible=True),
+            gr.Gallery.update(visible=True))
 
 
 def load_demo_refresh_model_list(request: gr.Request):
@@ -148,7 +151,8 @@ def load_demo_refresh_model_list(request: gr.Request):
         gr.Textbox.update(visible=True),
         gr.Button.update(visible=True),
         gr.Row.update(visible=True),
-        gr.Accordion.update(visible=True))
+        gr.Accordion.update(visible=True),
+        gr.Gallery.update(visible=True))
 
 
 def change_debug_state(state, with_debug_parameter_from_state, request: gr.Request):
@@ -202,6 +206,248 @@ def add_text(state, text, image_dict, image_process_mode, with_debug_parameter_f
     return (state, chatbot_info, "", None) + (disable_btn,) * 5
     # return chatbot_info
 
+def http_bot(session_state, state, model_selector, temperature, top_p, max_new_tokens, with_debug_parameter_from_state, request: gr.Request):
+    logger.info(f"http_bot. ip: {request.client.host}")
+    start_tstamp = time.time()
+    model_name = model_selector
+
+    if state.skip_next:
+        # This generate call is skipped due to invalid inputs
+        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (no_change_btn,) * 6
+        return
+
+    if len(state.messages) == state.offset + 2:
+        # # First round of conversation
+        new_state = conv_templates["mistral_instruct"].copy()
+        logger.warning(f"old-state:{state}")
+        new_state.append_message(new_state.roles[0], state.messages[-2][1])
+        new_state.append_message(new_state.roles[1], None)
+        # update
+        state = new_state
+        logger.warning(f"new-state: {state}")
+
+    # Query worker address
+    controller_url = args.controller_url
+    ret = requests.post(controller_url + "/get_worker_address",
+                        json={"model": model_name})
+    worker_addr = ret.json()["address"]
+    logger.info(f"model_name: {model_name}, worker_addr: {worker_addr}")
+
+    # No available worker
+    if worker_addr == "":
+        state.messages[-1][-1] = server_error_msg
+        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state), disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
+        return
+
+    # Construct prompt
+    prompt = state.get_prompt()
+
+    # Save images
+    all_images = state.get_images(return_pil=True)
+    all_image_hash = [hashlib.md5(image.tobytes()).hexdigest()
+                      for image in all_images]
+    for image, hash in zip(all_images, all_image_hash):
+        t = datetime.datetime.now()
+        filename = os.path.join(
+            LOGDIR, "serve_images", f"{t.year}-{t.month:02d}-{t.day:02d}", f"{hash}.jpg")
+        if not os.path.isfile(filename):
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            image.save(filename)
+
+    # Make requests
+    pload = {
+        "model": model_selector,
+        "prompt": prompt,
+        "temperature": float(temperature),
+        "top_p": float(top_p),
+        "max_new_tokens": min(int(max_new_tokens), 1536),
+        "stop": state.sep if state.sep_style in [SeparatorStyle.SINGLE, SeparatorStyle.MPT] else state.sep2,
+        # "images": state.get_images(),
+    }
+    logger.warning(f"\n\n==== request ====\n{json.dumps(pload, indent=4, ensure_ascii=False)}\n==== request ====\n\n")
+    pload['images'] = state.get_images()
+
+    state.messages[-1][-1] = "▌"
+    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 5
+
+    try:
+        # Stream output
+        response = requests.post(worker_addr + "/worker_generate_stream",
+                                 headers=headers, json=pload, stream=True, timeout=10)
+        # import ipdb; ipdb.set_trace()
+        for chunk in response.iter_lines(decode_unicode=False, delimiter=b"\0"):
+            if chunk:
+                data = json.loads(chunk.decode())
+                if data["error_code"] == 0:
+                    output = data["text"][len(prompt):].strip()
+                    state.messages[-1][-1] = output + "▌"
+                    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 6
+                else:
+                    output = data["text"] + \
+                        f" (error_code: {data['error_code']})"
+                    state.messages[-1][-1] = output
+                    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
+                    return
+                time.sleep(0.03)
+    except requests.exceptions.RequestException as e:
+        logger.info(f"error: {e}")
+        state.messages[-1][-1] = server_error_msg
+        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
+        return
+
+    # remove the cursor
+    state.messages[-1][-1] = state.messages[-1][-1][:-1]
+    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (enable_btn,) * 6
+
+    # check if we need tools
+    model_output_text = state.messages[-1][1]
+    logger.warning(f"model_output_text: {model_output_text}, Now we are going to parse the output.")
+   
+    # parse the output
+    try:
+        pattern = r'"thoughts🤔"(.*)"actions🚀"(.*)"value👉"(.*)'
+        matches = re.findall(pattern, model_output_text, re.DOTALL)
+        # import ipdb; ipdb.set_trace()
+        if len(matches) > 0:
+            # tool_cfg = json.loads(matches[0][1].strip())
+            try:
+                tool_cfg = json.loads(matches[0][1].strip())
+            except Exception as e:
+                tool_cfg = json.loads(
+                    matches[0][1].strip().replace("\'", "\""))
+            logger.info(f"tool_cfg:{tool_cfg}")
+        else:
+            tool_cfg = None
+    except Exception as e:
+        logger.error(f"Failed to parse tool config: {e}")
+        tool_cfg = None
+
+    # run tool augmentation
+    logger.warning(f"trigger tool augmentation with tool_cfg:  {tool_cfg}")
+    if tool_cfg is not None and len(tool_cfg) > 0:
+        assert len(
+            tool_cfg) == 1, "Only one tool is supported for now, but got: {}".format(tool_cfg)
+        api_name = tool_cfg[0]['API_name']
+        logger.info(f"API NAME: {api_name}")
+        tool_cfg[0]['API_params'].pop('image', None)
+        images = state.get_raw_images()
+        if len(images) > 0:
+            image = images[0]
+        else:
+            image = None
+        api_paras = {
+            "prompt": prompt,
+            "box_threshold": 0.3,
+            "text_threshold": 0.25,
+            "image_id": session_state.image_url.split("/")[-1].split(".")[0],
+            "image_root_dir": "/home/tx-deepocean/data1/jxq/code/structured-report/",
+            **tool_cfg[0]['API_params']
+        }
+        logger.info(f"api_paras:{api_paras}")
+        # import ipdb; ipdb.set_trace()
+        tool_worker_addr = get_worker_addr(controller_url, api_name)
+        logger.info(f"tool_worker_addr: {tool_worker_addr}")
+        tool_response = requests.post(
+            tool_worker_addr + "/worker_generate",
+            headers=headers,
+            json=api_paras,
+        ).json()
+
+        # build new response
+        new_response = f"{api_name} model outputs: {tool_response['lesion_texts']}\n\n"
+        first_question = state.messages[-2][-1]
+        if isinstance(first_question, tuple):
+            first_question = first_question[0].replace("<image>", "")
+        first_question = first_question.strip()
+
+        # add new response to the state
+        state.append_message(state.roles[0],
+                             new_response +
+                             "Please summarize the model outputs and answer my first question: {}".format(
+                                 first_question)
+                             )
+        state.append_message(state.roles[1], None)
+
+        # Construct prompt
+        prompt2 = state.get_prompt()
+
+        # Make new requests
+        pload = {
+            "model": model_name,
+            "prompt": prompt2,
+            "temperature": float(temperature),
+            "max_new_tokens": min(int(max_new_tokens), 1536),
+            "stop": state.sep if state.sep_style in [SeparatorStyle.SINGLE, SeparatorStyle.MPT] else state.sep2,
+            "images": f'List of {len(state.get_images())} images: {all_image_hash}',
+        }
+        logger.warning(f"\n\n==== request ====\n{json.dumps(pload, indent=4, ensure_ascii=False)}\n==== request ==== \n\n")
+        pload['images'] = state.get_images()
+
+        state.messages[-1][-1] = "▌"
+        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 6
+
+        try:
+            # Stream output
+            response = requests.post(worker_addr + "/worker_generate_stream",
+                                     headers=headers, json=pload, stream=True, timeout=10)
+            # import ipdb; ipdb.set_trace()
+            for chunk in response.iter_lines(decode_unicode=False, delimiter=b"\0"):
+                if chunk:
+                    data = json.loads(chunk.decode())
+                    if data["error_code"] == 0:
+                        output = data["text"][len(prompt2):].strip()
+                        #TODO
+                        output = output.replace("<", "(")
+                        output = output.replace(">", ")")
+                        state.messages[-1][-1] = output + "▌"
+                        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 6
+                    else:
+                        output = data["text"] + \
+                            f" (error_code: {data['error_code']})"
+                        state.messages[-1][-1] = output
+                        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
+                        return
+                    time.sleep(0.03)
+        except requests.exceptions.RequestException as e:
+            state.messages[-1][-1] = server_error_msg
+            yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
+            return
+
+        # remove the cursor
+        state.messages[-1][-1] = state.messages[-1][-1][:-1]
+
+        def get_lesion_pairs(output: str, lesion_slices: Dict):
+
+            from PIL import Image
+            logger.warning(state.messages[-1])
+            pairs = []
+            for _lesion_name in re.findall(r"Img\d+", output):
+                _lesion_img = Image.open(lesion_slices[_lesion_name])
+                # _lesion_img = _lesion_img.resize((128, 128))
+                pairs.append((_lesion_img, _lesion_name))
+            logger.warning(pairs)
+            return pairs
+
+        lesion_pairs = get_lesion_pairs(state.messages[-1][-1], tool_response['lesion_slices'])
+        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state), lesion_pairs) + (enable_btn,) * 6
+        
+    finish_tstamp = time.time()
+
+    # FIXME: disabled temporarily for image generation.
+    with open(get_conv_log_filename(), "a") as fout:
+        data = {
+            "tstamp": round(finish_tstamp, 4),
+            "type": "chat",
+            "model": model_name,
+            "start": round(start_tstamp, 4),
+            "finish": round(start_tstamp, 4),
+            "state": state.dict(force_str=True),
+            "images": all_image_hash,
+            "ip": request.client.host,
+        }
+        fout.write(json.dumps(data) + "\n")
+
+
 IMG_URLS_OR_PATHS = {
     "CE571001-1965456-30423-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1965456-30423-4.nii.gz",
     "CE571001-1768995-29744-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1768995-29744-4.nii.gz",
@@ -220,17 +466,7 @@ EXAMPLE_PROMPTS_3D = [
     ["图中左肺的结节有哪些？"],
 ]
 
-EXAMPLE_PROMPTS_2D = [
-    ["What abnormalities are seen in this image?"],
-    ["Is there evidence of edema in this image?"],
-    ["Is there pneumothorax?"],
-    ["What type is the lung opacity?"],
-    ["Which view is this image taken?"],
-    ["Is there evidence of cardiomegaly in this image?"],
-    ["Is the atelectasis located on the left side or right side?"],
-    ["What level is the cardiomegaly?"],
-    ["Describe the image in detail"],
-]
+
 
 class SessionVariables:
     """Class to store the session variables"""
@@ -326,288 +562,6 @@ def update_max_tokens(max_tokens, state):
     state.max_tokens = max_tokens
     return state
 
-def http_bot(session_state, state, model_selector, temperature, top_p, max_new_tokens, with_debug_parameter_from_state, request: gr.Request):
-    logger.info(f"http_bot. ip: {request.client.host}")
-    start_tstamp = time.time()
-    model_name = model_selector
-
-    if state.skip_next:
-        # This generate call is skipped due to invalid inputs
-        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (no_change_btn,) * 6
-        return
-
-    if len(state.messages) == state.offset + 2:
-        # # First round of conversation
-
-        if "llava" in model_name.lower():
-            if 'llama-2' in model_name.lower():
-                template_name = "llava_llama_2"
-            elif "v1" in model_name.lower():
-                if 'mmtag' in model_name.lower():
-                    template_name = "v1_mmtag"
-                elif 'plain' in model_name.lower() and 'finetune' not in model_name.lower():
-                    template_name = "v1_mmtag"
-                else:
-                    template_name = "llava_v1"
-            elif "mpt" in model_name.lower():
-                template_name = "mpt"
-            else:
-                if 'mmtag' in model_name.lower():
-                    template_name = "v0_mmtag"
-                elif 'plain' in model_name.lower() and 'finetune' not in model_name.lower() and 'tools' not in model_name.lower():
-                    template_name = "v0_mmtag"
-                else:
-                    template_name = "llava_v0"
-        elif "mpt" in model_name:
-            template_name = "mpt_text"
-        elif "llama-2" in model_name:
-            template_name = "llama_2"
-        else:
-            template_name = "vicuna_v1"
-        logger.info("template_name: ", template_name)
-
-        # # hack:
-        # # template_name = "multimodal_tools"
-        # # import ipdb; ipdb.set_trace()
-        # # image_name = [hashlib.md5(image.tobytes()).hexdigest() for image in state.get_images(return_pil=True)][0]
-        template_name = "mistral_instruct" # FIXME: overwrite
-        new_state = conv_templates[template_name].copy()
-
-        # if len(new_state.roles) == 2:
-        #     new_state.roles = tuple(list(new_state.roles) + ["system"])
-        # new_state.append_message(new_state.roles[2], f"receive an image with name `{image_name}.jpg`")
-
-        logger.info(f"old-state:{state}")
-
-        new_state.append_message(new_state.roles[0], state.messages[-2][1])
-        new_state.append_message(new_state.roles[1], None)
-        
-        # update
-        state = new_state
-
-        logger.info(f"new-state: {state}")
-        
-        logger.info(f"Messages: {state.messages}")
-
-    # Query worker address
-    controller_url = args.controller_url
-    ret = requests.post(controller_url + "/get_worker_address",
-                        json={"model": model_name})
-    worker_addr = ret.json()["address"]
-    logger.info(f"model_name: {model_name}, worker_addr: {worker_addr}")
-
-    # No available worker
-    if worker_addr == "":
-        state.messages[-1][-1] = server_error_msg
-        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state), disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
-        return
-
-    # Construct prompt
-    prompt = state.get_prompt()
-    # import ipdb; ipdb.set_trace()
-
-    # Save images
-    all_images = state.get_images(return_pil=True)
-    all_image_hash = [hashlib.md5(image.tobytes()).hexdigest()
-                      for image in all_images]
-    for image, hash in zip(all_images, all_image_hash):
-        t = datetime.datetime.now()
-        filename = os.path.join(
-            LOGDIR, "serve_images", f"{t.year}-{t.month:02d}-{t.day:02d}", f"{hash}.jpg")
-        if not os.path.isfile(filename):
-            os.makedirs(os.path.dirname(filename), exist_ok=True)
-            image.save(filename)
-    # import ipdb; ipdb.set_trace()
-
-    # Make requests
-    pload = {
-        "model": model_selector,
-        "prompt": prompt,
-        "temperature": float(temperature),
-        "top_p": float(top_p),
-        "max_new_tokens": min(int(max_new_tokens), 1536),
-        "stop": state.sep if state.sep_style in [SeparatorStyle.SINGLE, SeparatorStyle.MPT] else state.sep2,
-        # "images": state.get_images(),
-    }
-    logger.info(f"==== request ====\n{pload}\n==== request ====")
-    logger.info(f"----{state.messages}-------")
-    pload['images'] = state.get_images()
-
-    state.messages[-1][-1] = "▌"
-    # chatbot_data = state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)
-    # logger.warning(f"chatbot_data: {chatbot_data}")
-    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 5
-
-    try:
-        # Stream output
-        response = requests.post(worker_addr + "/worker_generate_stream",
-                                 headers=headers, json=pload, stream=True, timeout=10)
-        # import ipdb; ipdb.set_trace()
-        for chunk in response.iter_lines(decode_unicode=False, delimiter=b"\0"):
-            if chunk:
-                data = json.loads(chunk.decode())
-                if data["error_code"] == 0:
-                    output = data["text"][len(prompt):].strip()
-                    state.messages[-1][-1] = output + "▌"
-                    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 6
-                else:
-                    output = data["text"] + \
-                        f" (error_code: {data['error_code']})"
-                    state.messages[-1][-1] = output
-                    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
-                    return
-                time.sleep(0.03)
-    except requests.exceptions.RequestException as e:
-        logger.info(f"error: {e}")
-        state.messages[-1][-1] = server_error_msg
-        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
-        return
-
-    # remove the cursor
-    state.messages[-1][-1] = state.messages[-1][-1][:-1]
-    yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (enable_btn,) * 6
-
-    # check if we need tools
-    model_output_text = state.messages[-1][1]
-    # import ipdb; ipdb.set_trace()
-    logger.info(f"model_output_text: {model_output_text}, Now we are going to parse the output.")
-    # parse the output
-
-    # import ipdb; ipdb.set_trace()
-
-    try:
-        pattern = r'"thoughts🤔"(.*)"actions🚀"(.*)"value👉"(.*)'
-        matches = re.findall(pattern, model_output_text, re.DOTALL)
-        # import ipdb; ipdb.set_trace()
-        if len(matches) > 0:
-            # tool_cfg = json.loads(matches[0][1].strip())
-            try:
-                tool_cfg = json.loads(matches[0][1].strip())
-            except Exception as e:
-                tool_cfg = json.loads(
-                    matches[0][1].strip().replace("\'", "\""))
-            logger.info(f"tool_cfg:{tool_cfg}")
-        else:
-            tool_cfg = None
-    except Exception as e:
-        logger.info(f"Failed to parse tool config: {e}")
-        tool_cfg = None
-
-    # run tool augmentation
-    logger.info(f"trigger tool augmentation with tool_cfg:  {tool_cfg}")
-    if tool_cfg is not None and len(tool_cfg) > 0:
-        assert len(
-            tool_cfg) == 1, "Only one tool is supported for now, but got: {}".format(tool_cfg)
-        api_name = tool_cfg[0]['API_name']
-        logger.info(f"API NAME: {api_name}")
-        tool_cfg[0]['API_params'].pop('image', None)
-        images = state.get_raw_images()
-        if len(images) > 0:
-            image = images[0]
-        else:
-            image = None
-        api_paras = {
-            "prompt": prompt,
-            "box_threshold": 0.3,
-            "text_threshold": 0.25,
-            "image_id": session_state.image_url.split("/")[-1].split(".")[0],
-            "image_root_dir": "/home/tx-deepocean/data1/jxq/code/structured-report/",
-            **tool_cfg[0]['API_params']
-        }
-        logger.info(f"api_paras:{api_paras}")
-        # import ipdb; ipdb.set_trace()
-        tool_worker_addr = get_worker_addr(controller_url, api_name)
-        logger.info(f"tool_worker_addr: {tool_worker_addr}")
-        tool_response = requests.post(
-            tool_worker_addr + "/worker_generate",
-            headers=headers,
-            json=api_paras,
-        ).json()
-
-        # build new response
-        new_response = f"{api_name} model outputs: {tool_response['lesion_texts']}\n\n"
-        first_question = state.messages[-2][-1]
-        if isinstance(first_question, tuple):
-            first_question = first_question[0].replace("<image>", "")
-        first_question = first_question.strip()
-
-        # add new response to the state
-        state.append_message(state.roles[0],
-                             new_response +
-                             "Please summarize the model outputs and answer my first question: {}".format(
-                                 first_question)
-                             )
-        state.append_message(state.roles[1], None)
-
-        # Construct prompt
-        prompt2 = state.get_prompt()
-
-        # Make new requests
-        pload = {
-            "model": model_name,
-            "prompt": prompt2,
-            "temperature": float(temperature),
-            "max_new_tokens": min(int(max_new_tokens), 1536),
-            "stop": state.sep if state.sep_style in [SeparatorStyle.SINGLE, SeparatorStyle.MPT] else state.sep2,
-            "images": f'List of {len(state.get_images())} images: {all_image_hash}',
-        }
-        logger.info(f"==== request ====\n{pload}")
-        pload['images'] = state.get_images()
-
-        state.messages[-1][-1] = "▌"
-        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 6
-
-        try:
-            # Stream output
-            response = requests.post(worker_addr + "/worker_generate_stream",
-                                     headers=headers, json=pload, stream=True, timeout=10)
-            # import ipdb; ipdb.set_trace()
-            for chunk in response.iter_lines(decode_unicode=False, delimiter=b"\0"):
-                if chunk:
-                    data = json.loads(chunk.decode())
-                    if data["error_code"] == 0:
-                        output = data["text"][len(prompt2):].strip()
-                        #TODO
-                        output = output.replace("<", "(")
-                        output = output.replace(">", ")")
-                        state.messages[-1][-1] = output + "▌"
-                        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 6
-                    else:
-                        output = data["text"] + \
-                            f" (error_code: {data['error_code']})"
-                        state.messages[-1][-1] = output
-                        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
-                        return
-                    time.sleep(0.03)
-        except requests.exceptions.RequestException as e:
-            state.messages[-1][-1] = server_error_msg
-            yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
-            return
-
-        # remove the cursor
-        state.messages[-1][-1] = state.messages[-1][-1][:-1]
-        yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (enable_btn,) * 6
-        logger.warning(state.messages[-1])
-        
-
-    finish_tstamp = time.time()
-    logger.info(f"{output}")
-
-    # models = get_model_list()
-
-    # FIXME: disabled temporarily for image generation.
-    with open(get_conv_log_filename(), "a") as fout:
-        data = {
-            "tstamp": round(finish_tstamp, 4),
-            "type": "chat",
-            "model": model_name,
-            "start": round(start_tstamp, 4),
-            "finish": round(start_tstamp, 4),
-            "state": state.dict(force_str=True),
-            "images": all_image_hash,
-            "ip": request.client.host,
-        }
-        fout.write(json.dumps(data) + "\n")
 
 
 title_markdown = ("""
@@ -670,7 +624,8 @@ def build_demo(embed_mode):
 
             with gr.Column(scale=6):
                 chatbot = gr.Chatbot(
-                    elem_id="chatbot", label="MMedAgent Chatbot", height=550)
+                    elem_id="chatbot", label="MMedAgent Chatbot", height=400)
+                lesionbox = gr.Gallery(label="lesion", height=100, columns=10, visible=True)
                 with gr.Row():
                     with gr.Column(scale=8):
                         textbox.render()
@@ -710,12 +665,12 @@ def build_demo(embed_mode):
         textbox.submit(add_text, [conv_state, textbox, imagebox, image_process_mode, with_debug_parameter_state], 
                     [conv_state, chatbot, textbox, imagebox, debug_btn]
                     ).then(http_bot, [session_state, conv_state, model_selector, temperature_slider, top_p_slider, max_tokens_slider, with_debug_parameter_state],
-                        [conv_state, chatbot, debug_btn])
+                        [conv_state, chatbot, lesionbox, debug_btn])
 
         submit_btn.click(add_text, [conv_state, textbox, imagebox, image_process_mode, with_debug_parameter_state],
                         [conv_state, chatbot, textbox, imagebox, debug_btn]
                     ).then(http_bot, [session_state, conv_state, model_selector, temperature_slider, top_p_slider, max_tokens_slider, with_debug_parameter_state],
-                        [conv_state, chatbot, debug_btn])
+                        [conv_state, chatbot, lesionbox, debug_btn])
     
         
         debug_btn.click(change_debug_state, [conv_state, with_debug_parameter_state], [
