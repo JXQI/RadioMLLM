@@ -80,13 +80,13 @@ def get_worker_addr(controller_addr, worker_name):
         ret = requests.post(controller_addr + "/list_models")
         models = ret.json()["models"]
         models.sort()
-        # print(f"Models: {models}")
+        # logger.info(f"Models: {models}")
 
         ret = requests.post(
             controller_addr + "/get_worker_address", json={"model": worker_name}
         )
         sub_server_addr = ret.json()["address"]
-    # print(f"worker_name: {worker_name}")
+    # logger.info(f"worker_name: {worker_name}")
     return sub_server_addr
 
 
@@ -153,7 +153,7 @@ def load_demo_refresh_model_list(request: gr.Request):
 
 def change_debug_state(state, with_debug_parameter_from_state, request: gr.Request):
     logger.info(f"change_debug_state. ip: {request.client.host}")
-    print("with_debug_parameter_from_state: ", with_debug_parameter_from_state)
+    logger.info("with_debug_parameter_from_state: ", with_debug_parameter_from_state)
     with_debug_parameter_from_state = not with_debug_parameter_from_state
 
     # modify the text on debug_btn
@@ -201,15 +201,6 @@ def add_text(state, text, image_dict, image_process_mode, with_debug_parameter_f
     
     return (state, chatbot_info, "", None) + (disable_btn,) * 5
     # return chatbot_info
-
-def add_text1(text):
-    state = default_conversation.copy()
-    state.append_message("kkk", None)
-    state.append_message(state.roles[0], text)
-    state.append_message(state.roles[1], "| ")
-    chatbot_info = state.to_gradio_chatbot()
-    logging.info(chatbot_info)
-    return chatbot_info
 
 IMG_URLS_OR_PATHS = {
     "CE571001-1965456-30423-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1965456-30423-4.nii.gz",
@@ -335,7 +326,7 @@ def update_max_tokens(max_tokens, state):
     state.max_tokens = max_tokens
     return state
 
-def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_debug_parameter_from_state, request: gr.Request):
+def http_bot(session_state, state, model_selector, temperature, top_p, max_new_tokens, with_debug_parameter_from_state, request: gr.Request):
     logger.info(f"http_bot. ip: {request.client.host}")
     start_tstamp = time.time()
     model_name = model_selector
@@ -373,7 +364,7 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
             template_name = "llama_2"
         else:
             template_name = "vicuna_v1"
-        print("template_name: ", template_name)
+        logger.info("template_name: ", template_name)
 
         # # hack:
         # # template_name = "multimodal_tools"
@@ -394,9 +385,9 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
         # update
         state = new_state
 
-        logger.info(f"new-state:{state}")
+        logger.info(f"new-state: {state}")
         
-        print("Messages：", state.messages)
+        logger.info(f"Messages: {state.messages}")
 
     # Query worker address
     controller_url = args.controller_url
@@ -467,7 +458,7 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
                     return
                 time.sleep(0.03)
     except requests.exceptions.RequestException as e:
-        print("error: ", e)
+        logger.info(f"error: {e}")
         state.messages[-1][-1] = server_error_msg
         yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn, disable_btn, disable_btn, enable_btn, enable_btn, enable_btn)
         return
@@ -479,8 +470,7 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
     # check if we need tools
     model_output_text = state.messages[-1][1]
     # import ipdb; ipdb.set_trace()
-    print("model_output_text: ", model_output_text,
-          "Now we are going to parse the output.")
+    logger.info(f"model_output_text: {model_output_text}, Now we are going to parse the output.")
     # parse the output
 
     # import ipdb; ipdb.set_trace()
@@ -496,7 +486,7 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
             except Exception as e:
                 tool_cfg = json.loads(
                     matches[0][1].strip().replace("\'", "\""))
-            print("tool_cfg:", tool_cfg)
+            logger.info(f"tool_cfg:{tool_cfg}")
         else:
             tool_cfg = None
     except Exception as e:
@@ -504,12 +494,12 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
         tool_cfg = None
 
     # run tool augmentation
-    print("trigger tool augmentation with tool_cfg: ", tool_cfg)
+    logger.info(f"trigger tool augmentation with tool_cfg:  {tool_cfg}")
     if tool_cfg is not None and len(tool_cfg) > 0:
         assert len(
             tool_cfg) == 1, "Only one tool is supported for now, but got: {}".format(tool_cfg)
         api_name = tool_cfg[0]['API_name']
-        print(f"API NAME: {api_name}")
+        logger.info(f"API NAME: {api_name}")
         tool_cfg[0]['API_params'].pop('image', None)
         images = state.get_raw_images()
         if len(images) > 0:
@@ -517,39 +507,25 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
         else:
             image = None
         api_paras = {
-            'image': image,
             "prompt": prompt,
             "box_threshold": 0.3,
             "text_threshold": 0.25,
+            "image_id": session_state.image_url.split("/")[-1].split(".")[0],
+            "image_root_dir": "/home/tx-deepocean/data1/jxq/code/structured-report/",
             **tool_cfg[0]['API_params']
         }
-        if api_name in ['inpainting']:
-            api_paras['mask'] = getattr(state, 'mask_rle', None)
-        if api_name in ['openseed', 'controlnet']:
-            if api_name == 'controlnet':
-                api_paras['mask'] = getattr(state, 'image_seg', None)
-            api_paras['mode'] = api_name
-            api_name = 'controlnet'
-        if api_name == 'seem':
-            reference_image = getattr(state, 'reference_image', None)
-            reference_mask = getattr(state, 'reference_mask', None)
-            api_paras['refimg'] = reference_image
-            api_paras['refmask'] = reference_mask
-            # extract ref image and mask
-            
-
+        logger.info(f"api_paras:{api_paras}")
         # import ipdb; ipdb.set_trace()
         tool_worker_addr = get_worker_addr(controller_url, api_name)
-        print("tool_worker_addr: ", tool_worker_addr)
+        logger.info(f"tool_worker_addr: {tool_worker_addr}")
         tool_response = requests.post(
             tool_worker_addr + "/worker_generate",
             headers=headers,
             json=api_paras,
         ).json()
-        print("tool_response: ", tool_response)
 
         # build new response
-        new_response = f"{api_name} model outputs: {tool_response}\n\n"
+        new_response = f"{api_name} model outputs: {tool_response['lesion_texts']}\n\n"
         first_question = state.messages[-2][-1]
         if isinstance(first_question, tuple):
             first_question = first_question[0].replace("<image>", "")
@@ -591,6 +567,9 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
                     data = json.loads(chunk.decode())
                     if data["error_code"] == 0:
                         output = data["text"][len(prompt2):].strip()
+                        #TODO
+                        output = output.replace("<", "(")
+                        output = output.replace(">", ")")
                         state.messages[-1][-1] = output + "▌"
                         yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (disable_btn,) * 6
                     else:
@@ -607,8 +586,9 @@ def http_bot(state, model_selector, temperature, top_p, max_new_tokens, with_deb
 
         # remove the cursor
         state.messages[-1][-1] = state.messages[-1][-1][:-1]
-
         yield (state, state.to_gradio_chatbot(with_debug_parameter=with_debug_parameter_from_state)) + (enable_btn,) * 6
+        logger.warning(state.messages[-1])
+        
 
     finish_tstamp = time.time()
     logger.info(f"{output}")
@@ -729,15 +709,14 @@ def build_demo(embed_mode):
 
         textbox.submit(add_text, [conv_state, textbox, imagebox, image_process_mode, with_debug_parameter_state], 
                     [conv_state, chatbot, textbox, imagebox, debug_btn]
-                    ).then(http_bot, [conv_state, model_selector, temperature_slider, top_p_slider, max_tokens_slider, with_debug_parameter_state],
+                    ).then(http_bot, [session_state, conv_state, model_selector, temperature_slider, top_p_slider, max_tokens_slider, with_debug_parameter_state],
                         [conv_state, chatbot, debug_btn])
 
         submit_btn.click(add_text, [conv_state, textbox, imagebox, image_process_mode, with_debug_parameter_state],
                         [conv_state, chatbot, textbox, imagebox, debug_btn]
-                    ).then(http_bot, [conv_state, model_selector, temperature_slider, top_p_slider, max_tokens_slider, with_debug_parameter_state],
+                    ).then(http_bot, [session_state, conv_state, model_selector, temperature_slider, top_p_slider, max_tokens_slider, with_debug_parameter_state],
                         [conv_state, chatbot, debug_btn])
     
-        # submit_btn.click(add_text1, [textbox], [chatbot])
         
         debug_btn.click(change_debug_state, [conv_state, with_debug_parameter_state], [
                         conv_state, chatbot, textbox, imagebox] + [debug_btn, with_debug_parameter_state])
@@ -782,5 +761,5 @@ if __name__ == "__main__":
     _app, local_url, share_url = demo.queue(concurrency_count=args.concurrency_count, status_update_rate=10,
                                             api_open=True).launch(
         server_name=args.host, server_port=args.port, share=args.share, debug=args.debug)
-    print("Local URL: ", local_url)
-    print("Share URL: ", share_url)
+    logger.info("Local URL: ", local_url)
+    logger.info("Share URL: ", share_url)

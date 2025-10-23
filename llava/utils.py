@@ -42,7 +42,7 @@ def build_logger(logger_name, logger_filename):
 
     # Get logger
     logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.WARNING)
 
     # Add a file handler for all loggers
     if handler is None:
