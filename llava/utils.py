@@ -34,15 +34,13 @@ def build_logger(logger_name, logger_filename):
     sys.stdout = sl
 
     stderr_logger = logging.getLogger("stderr")
-    # stderr_logger.setLevel(logging.ERROR)
-    # sl = StreamToLogger(stderr_logger, logging.ERROR)
-    stdout_logger.setLevel(logging.WARNING)
-    sl = StreamToLogger(stdout_logger, logging.WARNING)
+    stderr_logger.setLevel(logging.ERROR)
+    sl = StreamToLogger(stderr_logger, logging.ERROR)
     sys.stderr = sl
 
     # Get logger
     logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.DEBUG)
 
     # Add a file handler for all loggers
     if handler is None:

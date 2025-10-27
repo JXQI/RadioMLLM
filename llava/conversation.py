@@ -44,7 +44,6 @@ def get_placehold(text):
     return res
 
 def parse_msg(msg):
-    print(msg, "++++++++")
     if len(msg) == 3:
         return msg[0], msg[1], msg[2], None
     if len(msg) == 4:
@@ -440,9 +439,6 @@ class Conversation:
                 continue
             # if role == self.roles[0]:
             if 1:
-                print("----------- type of msg ------------\n\n\n")
-                print(type(msg))
-                print(msg)
                 if type(msg) is tuple:
                     import base64
                     from io import BytesIO
