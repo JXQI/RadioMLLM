@@ -4,6 +4,6 @@ __pycache__
 llava-med-v1.5-mistral-7b-lora*
 *-conv.json
 checkpoints/
-*.log
+*.log*
 serve_images
 src
