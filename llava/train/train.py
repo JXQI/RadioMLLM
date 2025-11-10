@@ -376,6 +376,11 @@ def preprocess_llama_2(
     for conversation, target in zip(conversations, targets):
         total_len = int(target.ne(tokenizer.pad_token_id).sum())
 
+        # print(f"=== Debug Conversation ===")
+        # print(f"Conversation: {conversation}")
+        # print(f"target: {target}")
+        # print(f"Target length: {total_len}")
+
         rounds = conversation.split(conv.sep2)
         cur_len = 1
         target[:cur_len] = IGNORE_INDEX

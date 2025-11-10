@@ -4,8 +4,8 @@ deepspeed llava/train/train_mem.py \
     --deepspeed ./scripts/zero3.json \
     --model_name_or_path /home/tx-deepocean/data1/jxq/code/MMedAgent_origin/data/llava-med-v1.5-mistral-7b  \
     --version mistral_instruct\
-    --data_path /home/tx-deepocean/data1/jxq/code/structured-report/data/thougts_struct_v2.json \
-    --image_folder /home/tx-deepocean/data1/jxq/code/structured-report/ \
+    --data_path /home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/corrected_heart_chest_thougts_struct_conv_v3_1.json \
+    --image_folder / \
     --vision_tower openai/clip-vit-large-patch14-336 \
     --mm_projector_type mlp2x_gelu \
     --mm_vision_select_layer -2 \
@@ -14,15 +14,15 @@ deepspeed llava/train/train_mem.py \
     --image_aspect_ratio pad \
     --group_by_modality_length False \
     --bf16 True \
-    --output_dir ./checkpoints/llava-med-v1.5-mistral-7b-lora-mistral_instruct-v2 \
-    --num_train_epochs 30 \
+    --output_dir ./checkpoints/llava-med-v1.5-mistral-7b-lora-mistral_instruct-heart-chest-v2 \
+    --num_train_epochs 3 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 2 \
     --evaluation_strategy "no" \
-    --save_strategy "steps" \
+    --save_strategy "epoch" \
     --save_steps 3000 \
-    --save_total_limit 2 \
+    --save_total_limit 5 \
     --learning_rate 2e-4 \
     --weight_decay 0. \
     --warmup_ratio 0.03 \
@@ -33,4 +33,4 @@ deepspeed llava/train/train_mem.py \
     --gradient_checkpointing True \
     --dataloader_num_workers 4 \
     --lazy_preprocess True \
-    --report_to wandb
+    --report_to tensorboard
