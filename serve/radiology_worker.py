@@ -17,6 +17,7 @@ from typing import List, Tuple, Union
 import threading
 import uuid
 import torchvision
+import re
 
 from io import BytesIO
 import base64
@@ -73,26 +74,46 @@ class RaiologyModel:
     def __init__(self, gpu) -> None:
         pass
     
-    def __call__(self, image_root_dir, image_id):
-        with open("/home/tx-deepocean/data1/jxq/code/structured-report/data/data_info_zh_new.json") as handler:
-            data_infos=json.load(handler)
-        task_info = None
-        for data_info in data_infos:
-            if image_id in data_info["dicom"]:
-                task_info = data_info
-                break
+    def __call__(self, api_name, image_id):
+        if api_name == "CHEST":
+            image_root_dir = "/home/tx-deepocean/data1/jxq/code/structured-report/"
+            with open("/home/tx-deepocean/data1/jxq/code/structured-report/data/data_info_zh_new.json") as handler:
+                data_infos=json.load(handler)
+            task_info = None
+            for data_info in data_infos:
+                if image_id in data_info["dicom"]:
+                    task_info = data_info
+                    break
         
-        lesion_texts = ""
-        lesion_slices = {}
-        for key in task_info['lesion_report'].keys():
-            lesion_texts += task_info['lesion_report'][key] + "\n"
-            lesion_slices[key]=os.path.join(image_root_dir, task_info['lesion_slices'][key])
+            lesion_texts = ""
+            lesion_slices = {}
+            for key in task_info['lesion_report'].keys():
+                lesion_texts += task_info['lesion_report'][key] + "\n"
+                lesion_slices[key]=os.path.join(image_root_dir, task_info['lesion_slices'][key])
+            
+        elif api_name == "HEART":
+            image_root_dir = "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed_v1/"
+            with open("/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed_v1/data_info_zh_new.json") as handler:
+                data_infos=json.load(handler)
+            task_info = None
+            for data_info in data_infos:
+                if image_id in data_info["dicom"]:
+                    task_info = data_info
+                    break
+            lesion_texts = task_info['lesion_report']
+            lesion_slices = {}
+
+            pattern = r'\((Img0_[^)]*)\)'
+            matches = re.findall(pattern, lesion_texts)
+            for key in matches:
+                key = key.split('_')[-1]
+                lesion_slices[key]=os.path.join(image_root_dir, task_info['lesion_slices'][key])
         
         ret = {
             "lesion_texts": lesion_texts,
             "lesion_slices": lesion_slices
         }
-        
+            
         return ret
 
 
@@ -200,8 +221,8 @@ class ModelWorker:
 
     def generate_stream_func(self, model, params, device):
         image_id = params["image_id"]
-        image_root_dir = params['image_root_dir']
-        ret = model(image_root_dir, image_id)
+        api_name = params['api_name']
+        ret = model(api_name, image_id)
 
         return ret
 

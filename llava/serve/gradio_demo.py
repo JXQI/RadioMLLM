@@ -26,10 +26,18 @@ logger = build_logger("gradio_web_server", "gradio_web_server.log")
 headers = {"User-Agent": "MMedAgent Client"}
 
 IMG_URLS_OR_PATHS = {
+    # CHEST
     "CE571001-1965456-30423-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1965456-30423-4.nii.gz",
     "CE571001-1768995-29744-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1768995-29744-4.nii.gz",
     "CE571001-1951147-13386582-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1951147-13386582-4.nii.gz",
     "CE571001-1771535-30158-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1771535-30158-4.nii.gz",
+
+    # HEART
+    "CN010021-24474-7": "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/val_niigz/CN010021-24474-7.nii.gz",
+    "CN010023-1811071134-2765-501": "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/val_niigz/CN010023-1811071134-2765-501.nii.gz",
+    "CN411002-3683977-R02439383": "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/val_niigz/CN411002-3683977-R02439383.nii.gz",
+    "CN533002-HDH358703-5724-601": "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/val_niigz/CN533002-HDH358703-5724-601.nii.gz",
+
 }
 CACHED_IMAGES = ImageCache(
     cache_dir="/home/tx-deepocean/data1/jxq/code/VLM-Radiology-Agent-Framework/m3/demo/cache_images/"
@@ -400,8 +408,8 @@ class Interactions:
             tool_cfg[0]["API_params"].pop("image", None)
             api_paras = {
                 "prompt": prompt,
+                "api_name": api_name,
                 "image_id": param_state.image_url.split("/")[-1].split(".")[0],
-                "image_root_dir": "/home/tx-deepocean/data1/jxq/code/structured-report/",
                 **tool_cfg[0]["API_params"],
             }
             logger.debug(
@@ -409,7 +417,7 @@ class Interactions:
             )
 
             tool_worker_addr = SessionVariables.get_worker_addr(
-                controller_url, api_name
+                controller_url, "CHEST"
             )
             logger.info(f"tool_worker_addr: {tool_worker_addr}")
             tool_response = requests.post(
@@ -484,7 +492,16 @@ class Interactions:
         pairs = []
         if "lesion_slices" in tool_response:
             _lesion_slices = tool_response["lesion_slices"]
-            for _lesion_name in re.findall(r"Img\d+", output):
+            # pattern1 = r'Img\d+_vessel[\w-]+'  # 匹配 Img0_vessel2-p-1 格式
+            # pattern2 = r'Img\d+'               # 匹配 Img12 格式
+            pattern = r'Img\d+_vessel[\w-]+|Img\d+(?=\s|$|,|\))' 
+            lesion_matches = re.findall(pattern, output)
+            print(lesion_matches, "=========")
+            for _lesion_name in lesion_matches:
+                print(_lesion_name,"----")
+                if "vessel" in _lesion_name:
+                    _lesion_name=_lesion_name.split("_")[-1]
+                print(_lesion_name,"+++++")
                 pairs.append((_lesion_slices[_lesion_name], _lesion_name))
 
         return pairs
@@ -541,6 +558,17 @@ def build_demo(args):
                     label="Select an image",
                     choices=["Please select .."]
                     + list(param_state.value.img_urls_or_paths.keys()),
+                    max_choices=5,          # 限制显示数量
+                    filterable=True,         # 启用搜索
+                    allow_custom_value=False, # 禁止自定义输入
+                    multiselect=False,       # 单选模式
+                    # 布局控制
+                    container=True,
+                    min_width=350,
+                    scale=1,
+                    # 用户体验
+                    interactive=True,
+                    info="输入图像名称进行搜索"
                 )
                 image_slider = gr.Slider(0, 2, 1, step=0, visible=False)
                 with gr.Accordion("Parameters", open=False) as parameter_row:

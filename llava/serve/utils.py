@@ -6,6 +6,7 @@ import numpy as np
 import supervision as sv
 import torch
 from PIL import Image
+from backendmpr.pic import Pic
 
 
 def annotate_xyxy(image_source: np.ndarray, boxes: torch.Tensor, logits: torch.Tensor, phrases: List[str]) -> np.ndarray:
@@ -83,7 +84,6 @@ import requests
 import skimage
 from PIL import Image
 from PIL import Image as PILImage
-from PIL.Image import Image
 from tqdm import tqdm
 import concurrent.futures
 import threading
@@ -274,6 +274,26 @@ class ImageCache:
         self.cache_dir = cache_dir
         self.cache_images = {}
         self._lock = threading.Lock() 
+    
+    def apply_window_level(self, slice_data):
+        """
+        应用窗宽窗位处理
+        window_level: 窗位
+        window_width: 窗宽
+        """
+        # 计算窗口范围
+        WINDOW_LEVEL = -600
+        WINDOW_WIDTH = 1500
+        window_min = WINDOW_LEVEL - WINDOW_WIDTH / 2
+        window_max = WINDOW_LEVEL + WINDOW_WIDTH / 2
+        
+        # 应用窗口变换
+        slice_windowed = np.clip(slice_data, window_min, window_max)
+        
+        # 归一化到0-255
+        slice_normalized = (slice_windowed - window_min) / (window_max - window_min) * 255
+        
+        return slice_normalized.astype(np.uint8)
 
     def cache(self, image_urls_or_paths):
         """Cache the images from the URLs or paths."""
@@ -281,28 +301,30 @@ class ImageCache:
         items_list = list(image_urls_or_paths.items())
         for idx, (key, items) in enumerate(items_list):
             logger.debug(f"开始处理第 {idx+1}/{len(items_list)} 项: {key}")
-            try:
-                items = items if isinstance(items, list) else [items]
-                print(items, "++++++++")
-                for item in items:
-                    if item.startswith("http"):
-                        self.cache_images[item] = save_image_url_to_file(item, self.cache_dir)
-                    elif os.path.exists(item):
-                        # move the file to the cache directory
-                        file_name = os.path.basename(item)
-                        self.cache_images[item] = os.path.join(self.cache_dir, file_name)
-                        if not os.path.isfile(self.cache_images[item]):
-                            copyfile(item, self.cache_images[item])
-                    if self.cache_images[item].endswith(".nii.gz"):
-                        data = nib.load(self.cache_images[item]).get_fdata()
-                        for slice_index in tqdm(range(data.shape[2])):
-                            image_filename = get_slice_filenames(self.cache_images[item], slice_index)
-                            if not os.path.exists(os.path.join(self.cache_dir, image_filename)):
-                                print(image_filename)  #TODO
-            except Exception as e:
-                logger.error(f"处理NIfTI文件时出错: {str(e)}", exc_info=True)
-                # 仅跳过当前NIfTI文件，继续处理下一个
-                continue
+            # try:
+            items = items if isinstance(items, list) else [items]
+            print(items, "++++++++")
+            for item in items:
+                if item.startswith("http"):
+                    self.cache_images[item] = save_image_url_to_file(item, self.cache_dir)
+                elif os.path.exists(item):
+                    # move the file to the cache directory
+                    file_name = os.path.basename(item)
+                    self.cache_images[item] = os.path.join(self.cache_dir, file_name)
+                    if not os.path.isfile(self.cache_images[item]):
+                        copyfile(item, self.cache_images[item])
+                if self.cache_images[item].endswith(".nii.gz"):
+                    data = nib.load(self.cache_images[item]).get_fdata()
+                    for slice_index in tqdm(range(data.shape[2])):
+                        image_filename = get_slice_filenames(self.cache_images[item], slice_index)
+                        if not os.path.exists(os.path.join(self.cache_dir, image_filename)):
+                            pic = Pic(self.apply_window_level(data[:, :, slice_index]))
+                            Pic.save(pic.img, os.path.join(self.cache_dir, image_filename))
+                            # print(os.path.join(self.cache_dir, image_filename), "---")
+            # except Exception as e:
+            #     logger.error(f"处理NIfTI文件时出错: {str(e)}", exc_info=True)
+            #     # 仅跳过当前NIfTI文件，继续处理下一个
+            #     continue
             logger.debug(f"第 {idx+1}/{len(items_list)} 项处理完成")
         logger.debug("所有项目缓存处理完成")
     
