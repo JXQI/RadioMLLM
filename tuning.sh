@@ -4,7 +4,7 @@ deepspeed llava/train/train_mem.py \
     --deepspeed ./scripts/zero3.json \
     --model_name_or_path /home/tx-deepocean/data1/jxq/code/MMedAgent_origin/data/llava-med-v1.5-mistral-7b  \
     --version mistral_instruct\
-    --data_path /home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/corrected_heart_chest_thougts_struct_conv_v3_1.json \
+    --data_path /home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/corrected_heart2_chest2_slake1_path1_rad1_thougts_struct_conv_v4.json \
     --image_folder / \
     --vision_tower openai/clip-vit-large-patch14-336 \
     --mm_projector_type mlp2x_gelu \
@@ -14,8 +14,8 @@ deepspeed llava/train/train_mem.py \
     --image_aspect_ratio pad \
     --group_by_modality_length False \
     --bf16 True \
-    --output_dir ./checkpoints/llava-med-v1.5-mistral-7b-lora-mistral_instruct-heart-chest-v4 \
-    --num_train_epochs 3 \
+    --output_dir ./checkpoints/llava-med-v1.5-mistral-7b-lora-mistral_instruct-heart2-chest2_slake1_path1_rad1_v4 \
+    --num_train_epochs 2 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 2 \
