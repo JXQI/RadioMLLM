@@ -36,11 +36,11 @@ repos:
         language: python
         types: [python]
 
-      - id: autoflake
-        name: autoflake
-        entry: autoflake --in-place --remove-all-unused-imports
-        language: python
-        types: [python]
+      # - id: autoflake
+      #   name: autoflake
+      #   entry: autoflake --in-place --remove-all-unused-imports
+      #   language: python
+      #   types: [python]
 
       # - id: mypy
       #   name: mypy

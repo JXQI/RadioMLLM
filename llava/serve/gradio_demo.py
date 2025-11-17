@@ -23,18 +23,18 @@ headers = {"User-Agent": "MMedAgent Client"}
 
 IMG_URLS_OR_PATHS = {
     # CHEST
-    "CE571001-1965456-30423-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1965456-30423-4.nii.gz",
-    "CE571001-1768995-29744-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1768995-29744-4.nii.gz",
-    "CE571001-1951147-13386582-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1951147-13386582-4.nii.gz",
-    "CE571001-1771535-30158-4": "/home/tx-deepocean/data1/jxq/code/structured-report/data/niigz/CE571001-1771535-30158-4.nii.gz",
+    "CE571001-1965456-30423-4": "/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/chest/niigz/CE571001-1965456-30423-4.nii.gz",
+    "CE571001-1768995-29744-4": "/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/chest/niigz/CE571001-1768995-29744-4.nii.gz",
+    "CE571001-1951147-13386582-4": "/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/chest/niigz/CE571001-1951147-13386582-4.nii.gz",
+    "CE571001-1771535-30158-4": "/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/chest/niigz/CE571001-1771535-30158-4.nii.gz",
     # HEART
-    "CN010021-24474-7": "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/val_niigz/CN010021-24474-7.nii.gz",
-    "CN010023-1811071134-2765-501": "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/val_niigz/CN010023-1811071134-2765-501.nii.gz",
-    "CN411002-3683977-R02439383": "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/val_niigz/CN411002-3683977-R02439383.nii.gz",
-    "CN533002-HDH358703-5724-601": "/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/val_niigz/CN533002-HDH358703-5724-601.nii.gz",
+    "CN010021-24474-7": "/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/heart/val_niigz/CN010021-24474-7.nii.gz",
+    "CN010023-1811071134-2765-501": "/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/heart/val_niigz/CN010023-1811071134-2765-501.nii.gz",
+    "CN411002-3683977-R02439383": "/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/heart/val_niigz/CN411002-3683977-R02439383.nii.gz",
+    "CN533002-HDH358703-5724-601": "/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/heart/val_niigz/CN533002-HDH358703-5724-601.nii.gz",
 }
 CACHED_IMAGES = ImageCache(
-    cache_dir="/home/tx-deepocean/data1/jxq/code/VLM-Radiology-Agent-Framework/m3/demo/cache_images/"
+    cache_dir="/home/tx-deepocean/data2/jxq/data/mmedagent/processed/demo/cache_images"
 )
 ##############################
 
