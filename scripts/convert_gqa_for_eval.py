@@ -1,6 +1,5 @@
 import argparse
 import json
-import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--src", type=str)

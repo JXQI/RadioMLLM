@@ -20,7 +20,7 @@ import logging
 import os
 import pathlib
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 import tokenizers
 import torch
@@ -34,7 +34,6 @@ from llava.constants import (
     DEFAULT_IM_START_TOKEN,
     DEFAULT_IMAGE_TOKEN,
     IGNORE_INDEX,
-    IMAGE_TOKEN_INDEX,
 )
 from llava.mm_utils import reorganize_source_for_tool_use_batch, tokenizer_image_token
 from llava.model import *

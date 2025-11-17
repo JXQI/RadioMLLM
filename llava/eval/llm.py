@@ -1,7 +1,6 @@
 import abc
 import asyncio
 import math
-import os
 from abc import abstractmethod
 
 import backoff

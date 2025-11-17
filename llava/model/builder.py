@@ -1,5 +1,4 @@
 import os
-import shutil
 import warnings
 
 import torch
@@ -114,25 +113,11 @@ def load_pretrained_model(
         elif model_base is not None:
             # this may be mm projector only
             print("Loading LLaVA from base model...")
-            if "mpt" in model_name.lower():
-                if not os.path.isfile(os.path.join(model_path, "configuration_mpt.py")):
-                    shutil.copyfile(
-                        os.path.join(model_base, "configuration_mpt.py"),
-                        os.path.join(model_path, "configuration_mpt.py"),
-                    )
-                tokenizer = AutoTokenizer.from_pretrained(model_base, use_fast=True)
-                cfg_pretrained = AutoConfig.from_pretrained(
-                    model_path, trust_remote_code=True
-                )
-                model = LlavaMptForCausalLM.from_pretrained(
-                    model_base, low_cpu_mem_usage=True, config=cfg_pretrained, **kwargs
-                )
-            else:
-                tokenizer = AutoTokenizer.from_pretrained(model_base, use_fast=False)
-                cfg_pretrained = AutoConfig.from_pretrained(model_path)
-                model = LlavaMistralForCausalLM.from_pretrained(
-                    model_base, low_cpu_mem_usage=True, config=cfg_pretrained, **kwargs
-                )
+            tokenizer = AutoTokenizer.from_pretrained(model_base, use_fast=False)
+            cfg_pretrained = AutoConfig.from_pretrained(model_path)
+            model = LlavaMistralForCausalLM.from_pretrained(
+                model_base, low_cpu_mem_usage=True, config=cfg_pretrained, **kwargs
+            )
 
             mm_projector_weights = torch.load(
                 os.path.join(model_path, "mm_projector.bin"), map_location="cpu"
@@ -142,12 +127,7 @@ def load_pretrained_model(
             }
             model.load_state_dict(mm_projector_weights, strict=False)
         else:
-            if "mpt" in model_name.lower():
-                tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
-                model = LlavaMptForCausalLM.from_pretrained(
-                    model_path, low_cpu_mem_usage=True, **kwargs
-                )
-            elif "mistral" in model_name.lower():
+            if "mistral" in model_name.lower():
                 tokenizer = AutoTokenizer.from_pretrained(model_path)
                 model = LlavaMistralForCausalLM.from_pretrained(
                     model_path, low_cpu_mem_usage=True, **kwargs

@@ -1,8 +1,5 @@
 import argparse
-import json
 from collections import defaultdict
-from copy import deepcopy
-from pprint import pprint
 
 import pandas as pd
 import util

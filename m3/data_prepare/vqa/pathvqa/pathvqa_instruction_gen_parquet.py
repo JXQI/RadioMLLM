@@ -12,7 +12,6 @@
 import argparse
 import io
 import os
-import shutil
 
 import pandas as pd
 from PIL import Image

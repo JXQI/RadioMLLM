@@ -4,14 +4,12 @@ It sends worker addresses to clients.
 """
 
 import argparse
-import asyncio
 import dataclasses
 import json
-import logging
 import threading
 import time
 from enum import Enum, auto
-from typing import List, Union
+from typing import List
 
 import numpy as np
 import requests

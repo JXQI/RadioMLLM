@@ -1,12 +1,22 @@
+import base64
+import logging
+import os
 import re
-from typing import List, Tuple
+import threading
+from io import BytesIO
+from pathlib import Path
+from shutil import copyfile, rmtree
+from typing import List
 
-import cv2
+import nibabel as nib
 import numpy as np
+import requests
 import supervision as sv
 import torch
 from backendmpr.pic import Pic
 from PIL import Image
+from PIL import Image as PILImage
+from tqdm import tqdm
 
 
 def annotate_xyxy(
@@ -76,24 +86,6 @@ def show_mask(mask: torch.Tensor, image: Image, random_color=True) -> Image:
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import base64
-import concurrent.futures
-import itertools
-import logging
-import os
-import re
-import threading
-from io import BytesIO
-from pathlib import Path
-from shutil import copyfile, rmtree
-
-import nibabel as nib
-import numpy as np
-import requests
-import skimage
-from PIL import Image
-from PIL import Image as PILImage
-from tqdm import tqdm
 
 logger = logging.getLogger("gradio_m3")
 
@@ -176,7 +168,9 @@ def save_image_url_to_file(image_url: str, output_dir: Path) -> str:
         raise requests.exceptions.RequestException(f"Failed to download the image: {e}")
 
     if url_response.status_code != 200:
-        raise requests.exceptions.RequestException(f"Failed to download the image: {e}")
+        raise requests.exceptions.RequestException(
+            f"Failed to download the image: {url_response.status_code}"
+        )
 
     content_disposition = url_response.headers.get("Content-Disposition")
     file_name = os.path.join(

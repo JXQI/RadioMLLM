@@ -1,10 +1,8 @@
 import base64
 import dataclasses
-import os
 import re
 from enum import Enum, auto
-from io import BytesIO
-from typing import List, Tuple
+from typing import List
 
 import torchvision.transforms.functional as F
 from PIL import Image
@@ -92,7 +90,8 @@ class Conversation:
                 messages[0] = (init_role, "<image>\n" + init_msg)
 
         if self.sep_style == SeparatorStyle.SINGLE:
-            message, _, _, _ = parse_msg(message)
+            message, _, _, _ = parse_msg(messages)
+            ret = ""
             for role, message in messages:
                 if message:
                     if type(message) is tuple:
@@ -284,8 +283,6 @@ class Conversation:
                     import base64
                     from io import BytesIO
 
-                    from PIL import Image
-
                     msg, img, _, sketch_mask = parse_msg(msg)
 
                     # resize for large images
@@ -470,8 +467,7 @@ class Conversation:
             # if role == self.roles[0]:
             if 1:
                 if type(msg) is tuple:
-                    import base64
-                    from io import BytesIO
+                    pass
 
                     # msg, image, image_process_mode = msg
                     msg, image, image_process_mode, sketch_mask = parse_msg(msg)

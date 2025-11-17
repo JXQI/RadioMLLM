@@ -68,8 +68,8 @@ def extract_text_values(jsonl_data):
             metrics["actions"] = json.loads(item["actions"])[0]
             metrics["value"] = item["value"].strip().lower()
             text_values[id] = metrics
-        except:
-            print(item, "结果不符合格式要求")
+        except Exception as e:
+            print(item, f"结果不符合格式要求:{e}")
 
     return text_values
 

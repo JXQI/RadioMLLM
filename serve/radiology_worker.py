@@ -2,17 +2,10 @@
 A model worker executes the model.
 """
 
-import os
-import sys
-
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-
 import argparse
 import asyncio
 import base64
-import dataclasses
 import json
-import logging
 import os
 import re
 import sys
@@ -20,34 +13,17 @@ import threading
 import time
 import uuid
 from io import BytesIO
-from typing import List, Tuple, Union
+from typing import Tuple
 
 import numpy as np
 import requests
-import torchvision
+import torch
+import uvicorn
 from fastapi import BackgroundTasks, FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from PIL import Image
 
-try:
-    from transformers import (
-        AutoModel,
-        AutoModelForCausalLM,
-        AutoTokenizer,
-        LlamaTokenizer,
-    )
-except ImportError:
-    from transformers import (
-        AutoTokenizer,
-        AutoModelForCausalLM,
-        LLaMATokenizer,
-        AutoModel,
-    )
-
-import torch
-import torch.nn.functional as F
-import uvicorn
-
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from serve.constants import SERVER_ERROR_MSG, WORKER_HEART_BEAT_INTERVAL, ErrorCode
 from serve.utils import build_logger, pretty_print_semaphore
 

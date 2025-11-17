@@ -1,6 +1,5 @@
 import argparse
 import itertools
-import math
 import os
 
 import torch
@@ -16,9 +15,8 @@ from llava.constants import (
     DEFAULT_IMAGE_TOKEN,
     IMAGE_TOKEN_INDEX,
 )
-from llava.conversation import SeparatorStyle, conv_templates, parse_tool_output
+from llava.conversation import conv_templates, parse_tool_output
 from llava.mm_utils import (
-    KeywordsStoppingCriteria,
     get_model_name_from_path,
     process_images,
     tokenizer_image_token,

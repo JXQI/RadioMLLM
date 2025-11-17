@@ -18,7 +18,6 @@ from abc import ABC, abstractmethod
 from glob import glob
 
 import torch
-import torch.nn as nn
 
 from llava.constants import (
     DEFAULT_IM_END_TOKEN,

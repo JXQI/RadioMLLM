@@ -7,18 +7,13 @@ from glob import glob
 from typing import Dict, List, Tuple
 
 import gradio as gr
-import PIL
 import requests
-from PIL import Image
 
-from llava.constants import LOGDIR
-from llava.conversation import SeparatorStyle, conv_templates, default_conversation
-from llava.serve.utils import ImageCache, annotate_xyxy, get_slice_filenames, show_mask
+from llava.conversation import SeparatorStyle, default_conversation
+from llava.serve.utils import ImageCache, get_slice_filenames
 from llava.utils import (
     build_logger,
-    moderation_msg,
     server_error_msg,
-    violates_moderation,
 )
 
 ##### global settings #####

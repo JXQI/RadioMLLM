@@ -8,7 +8,6 @@ import argparse
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llava.model import *
 from llava.model.utils import auto_upgrade
 
 

@@ -4,19 +4,17 @@
 
 import argparse
 import concurrent.futures
+import copy
+import json
+import logging
 import os
+import random
+import sys
 import threading
+from typing import Any, Dict, List
 
-# llm = OpenAI(model_name="qwen-plus", n=2, best_of=2)
-# result = llm("给我讲个笑话")
-# print(result)
-from cmath import inf
-
-import yaml
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.chains import LLMChain
 from langchain.chat_models import init_chat_model
-from langchain.schema import HumanMessage, SystemMessage
+from langchain.schema import SystemMessage
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.document_loaders import JSONLoader
 from langchain_community.embeddings import DashScopeEmbeddings
@@ -30,22 +28,12 @@ from langchain_core.prompts import (
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 
-os.environ["DEEPSEEK_API_KEY"] = "sk-b4c46f3065484299b84398c5d050263f"
-
-import copy
-import json
-import logging
-import random
-import sys
-from typing import Any, Dict, List
-
-from langchain.chains.base import Chain
-from tqdm import tqdm
-
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 from data_utils import write_json
 from utils.format import filter_valid_conversations
+
+os.environ["DEEPSEEK_API_KEY"] = "sk-b4c46f3065484299b84398c5d050263f"
 
 
 class GenRetrievalQA:
