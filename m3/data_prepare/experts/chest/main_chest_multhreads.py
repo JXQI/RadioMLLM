@@ -1,17 +1,7 @@
-# import os
-# from langchain.llms import OpenAI
-# os.environ["OPENAI_API_KEY"] = "sk-61f79ca08fa44bd3be0f24d82614a02d"
-
 import argparse
 import concurrent.futures
-import copy
-import json
-import logging
 import os
-import random
-import sys
 import threading
-from typing import Any, Dict, List
 
 from langchain.chat_models import init_chat_model
 from langchain.schema import SystemMessage
@@ -28,12 +18,19 @@ from langchain_core.prompts import (
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 
+os.environ["DEEPSEEK_API_KEY"] = "sk-b4c46f3065484299b84398c5d050263f"
+
+import copy
+import json
+import logging
+import random
+import sys
+from typing import Any, Dict, List
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 from data_utils import write_json
 from utils.format import filter_valid_conversations
-
-os.environ["DEEPSEEK_API_KEY"] = "sk-b4c46f3065484299b84398c5d050263f"
 
 
 class GenRetrievalQA:
@@ -55,6 +52,7 @@ class GenRetrievalQA:
     def init_retriever(self, knowleage_file):
         if (knowleage_file is None) or (not os.path.exists(knowleage_file)):
             return None
+
         loader = JSONLoader(knowleage_file, jq_schema=".[]")
         documents = loader.load()
         text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
@@ -106,18 +104,23 @@ class GenRetrievalQA:
 
     def invoke(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         query = inputs["query"]
-        full_input = f"病灶检测结果: {query}"
+        docs = self.retriever.invoke(query)
+        context = "\n\n".join([doc.page_content for doc in docs])
+        full_input = f"知识库相关内容：{context}\n\n病灶检测结果: {query}"
 
+        # 调用chatbot LLM
+        # output = self.app.invoke({"messages": HumanMessage(query)}, self.config)
+        # return self.out_parser.parse(output["messages"][-1].content)
+
+        # 调用chain LLM
         output = self.app.invoke({"user_input": full_input})
-
         return self.out_parser.parse(output.content)
 
 
-class HeartDataSet:
-    def __init__(self, bot, data_info_path: str, max_workers: int = 4):
+class ChestDataSet:
+    def __init__(self, bot, data_info_path: str, max_workers: int):
         self.bot = bot
         self.max_workers = max_workers
-
         with open(data_info_path, "r") as handle:
             self.data_info = json.load(handle)
         self.lock = threading.Lock()
@@ -135,36 +138,45 @@ class HeartDataSet:
             report += "\n"
         return report
 
-    def _gen_conv(self, data_info, convs, idx):
+    def _gen_conv(self, data_info, convs):
         conversations = []
+        conv_debug = None
         for conv in convs:
             _slices_images = list(data_info["slices"].values())
             _entry = {
                 "image": random.choice(_slices_images),
             }
-
-            _entry.update(conv)
+            conv_debug = conv
+            try:
+                _entry.update(conv)
+            except Exception as e:
+                print(e)
+                return conv_debug
 
             conversations.append(copy.copy(_entry))
-        print(f"线程 {threading.current_thread().name}：成功 idx={idx}")
+
         return conversations
 
     def _process_single_task(self, idx, info):
         """处理单个 data_info 任务，返回生成的 conversations"""
+        conv = None
         try:
-            output = self.invoke(info["lesion_report"])
-            return self._gen_conv(info, output, idx)
+            query = self.get_query(info["lesion_report"])
+            print(query)
+            output = self.invoke(query)
+            conv = self._gen_conv(info, output)
+            return conv
         except Exception as e:
             print(
-                f"线程 {threading.current_thread().name}：错误 idx={idx}, dicom={info['dicom']}, 错误={e}"
+                f"线程 {threading.current_thread().name}：错误 idx={idx}, dicom={info['dicom']}, 错误={e}, conv={conv}"
             )
             return []  # 出错时返回空列表，不影响整体结果
 
     def __call__(self, tasks):
         self.add_conversion = []
-        tasks = [(idx, info) for idx, info in enumerate(tasks)]  # 剩下五十个当作测试集
+        tasks = [(idx, info) for idx, info in enumerate(tasks)]
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.max_workers, thread_name_prefix="HeartThread"
+            max_workers=self.max_workers, thread_name_prefix="ChestThread"
         ) as executor:
             # 提交所有任务，返回结果迭代器
             future_results = executor.map(
@@ -184,20 +196,19 @@ class HeartDataSet:
 def main(args):
 
     bot = GenRetrievalQA(args.config_file, args.knowloge_file)
-    heart_dataset = HeartDataSet(
+    chest_dataset = ChestDataSet(
         bot, data_info_path=args.data_info, max_workers=args.max_workers
     )
-
-    data_infos = heart_dataset.data_info
+    data_infos = chest_dataset.data_info
     split_idx = int(len(data_infos) * args.test_frac)
 
     out_train_file = args.out_fileprefix + "_train.json"
     out_test_file = args.out_fileprefix + "_test.json"
 
-    test_conversions = heart_dataset(data_infos[0:split_idx])
+    test_conversions = chest_dataset(data_infos[0:split_idx])
     write_json(test_conversions, out_test_file)
 
-    train_conversions = heart_dataset(data_infos[split_idx:])
+    train_conversions = chest_dataset(data_infos[split_idx:])
     write_json(train_conversions, out_train_file)
 
     print(f"train_convs: {len(train_conversions)}, test_convs: {len(test_conversions)}")
