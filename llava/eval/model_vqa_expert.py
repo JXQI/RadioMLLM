@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 import argparse
 import itertools
+import json
 import os
 
 import torch
@@ -36,7 +38,7 @@ def eval_model(args):
     else:
         world_size, global_rank = args.num_chunks, args.chunk_idx
     print(world_size, global_rank)
-    instances = io.load(args.question_file)[:4][global_rank::world_size]
+    instances = io.load(args.question_file)[global_rank::world_size]
 
     # Model
     disable_torch_init()
@@ -104,23 +106,77 @@ def eval_model(args):
             response = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[
                 0
             ].strip()
+            conv.messages[-1][-1] = response
+
+            # 根据专家模型得到回答
+            matches = parse_tool_output(response)
+            if len(matches) > 0:
+                try:
+                    tool_cfg = json.loads(matches[0][1].strip())
+                except Exception as e:
+                    tool_cfg = json.loads(matches[0][1].strip().replace("'", '"'))
+            else:
+                tool_cfg = None
+
+            api_name = tool_cfg[0]["API_name"]
+            tool_response = instance["conversations"][2]["value"]
+
+            new_response = f"{api_name} model outputs: {tool_response}\n\n"
+            first_question = conv.messages[-2][-1]
+            first_question = first_question.replace("<image>", "").strip()
+            conv.append_message(
+                conv.roles[0],
+                new_response
+                + "Please summarize the model outputs and answer my first question: {}".format(
+                    first_question
+                ),
+            )
+            conv.append_message(conv.roles[1], None)
+
+            prompt2 = conv.get_prompt()
+            input2_ids = (
+                tokenizer_image_token(
+                    prompt2, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
+                )
+                .unsqueeze(0)
+                .cuda()
+            )
+            with torch.inference_mode():
+                output2_ids = model.generate(
+                    input2_ids,
+                    images=image_tensor.unsqueeze(0).half().cuda(),
+                    do_sample=True if args.temperature > 0 else False,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    num_beams=args.num_beams,
+                    # no_repeat_ngram_size=3,
+                    max_new_tokens=context_len,
+                    use_cache=True,
+                )
+
+            response2 = tokenizer.batch_decode(output2_ids, skip_special_tokens=True)[
+                0
+            ].strip()
+            conv.append_message(conv.roles[1], response2)
+
+            matches2 = parse_tool_output(response2)
+            value = matches2[0][2]
+
+            _res = {
+                "image": instance["image"],
+                "api_name": api_name,
+                "value": value,
+            }
+            outputs.append(_res)
+
             if global_rank == 0:
                 print("\n\n====================================")
-                print(instance, "\n+++++++++++++++++++++++++\n")
-                print(response, "\n\n")
+                print(_res)
                 print("---------------------------------\n\n")
-            matches = parse_tool_output(response)
-            outputs.append(
-                {
-                    "image": instance["image"],
-                    "thoughts": matches[0][0].strip(),
-                    "actions": matches[0][1].strip(),
-                    "value": matches[0][2].strip(),
-                }
-            )
+
         except Exception as e:
             print(e)
-            # print(instance)
+            print(instance)
 
     # Gather outputs and save
     if dist.size() > 1:
