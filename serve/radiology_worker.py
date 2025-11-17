@@ -31,7 +31,7 @@ GB = 1 << 30
 
 
 now_file_name = os.__file__
-logdir = "logs/workers/"
+logdir = "log/workers/"
 os.makedirs(logdir, exist_ok=True)
 logfile = os.path.join(logdir, f"{now_file_name}.log")
 
