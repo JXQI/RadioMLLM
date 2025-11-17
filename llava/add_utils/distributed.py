@@ -4,12 +4,23 @@ from typing import Any, List, Optional
 
 from torch import distributed as dist
 
-__all__ = ["init", "is_initialized", "size", "rank", "local_size", "local_rank", "is_main", "gather"]
+__all__ = [
+    "init",
+    "is_initialized",
+    "size",
+    "rank",
+    "local_size",
+    "local_rank",
+    "is_main",
+    "gather",
+]
 
 
 def init() -> None:
     if "RANK" not in os.environ:
-        warnings.warn("Environment variable `RANK` is not set. Skipping distributed initialization.")
+        warnings.warn(
+            "Environment variable `RANK` is not set. Skipping distributed initialization."
+        )
         return
     dist.init_process_group(backend="nccl", init_method="env://")
 

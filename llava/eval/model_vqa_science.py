@@ -1,23 +1,32 @@
 import argparse
-import torch
-import os
 import itertools
-from tqdm import tqdm
+import math
+import os
 
-from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
-from llava.conversation import conv_templates, SeparatorStyle, parse_tool_output
+import torch
+from PIL import Image
+from tqdm import tqdm
+from transformers import logging, set_seed
+
+from llava.add_utils import distributed as dist
+from llava.add_utils import io
+from llava.constants import (
+    DEFAULT_IM_END_TOKEN,
+    DEFAULT_IM_START_TOKEN,
+    DEFAULT_IMAGE_TOKEN,
+    IMAGE_TOKEN_INDEX,
+)
+from llava.conversation import SeparatorStyle, conv_templates, parse_tool_output
+from llava.mm_utils import (
+    KeywordsStoppingCriteria,
+    get_model_name_from_path,
+    process_images,
+    tokenizer_image_token,
+)
 from llava.model.builder import load_pretrained_model
 from llava.utils import disable_torch_init
-from llava.mm_utils import tokenizer_image_token, get_model_name_from_path, KeywordsStoppingCriteria, process_images
-from llava.add_utils import io
-from llava.add_utils import distributed as dist
-
-from PIL import Image
-import math
-from transformers import set_seed, logging
 
 logging.set_verbosity_error()
-
 
 
 def eval_model(args):
@@ -36,7 +45,9 @@ def eval_model(args):
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
     print(model_name, model_path, args.model_base, args.question_file, "+++")
-    tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, args.model_base, model_name)
+    tokenizer, model, image_processor, context_len = load_pretrained_model(
+        model_path, args.model_base, model_name
+    )
 
     outputs = []
     for instance in tqdm(instances, disable=global_rank != 0):
@@ -44,20 +55,40 @@ def eval_model(args):
             question = instance["conversations"][0]["value"]
             question = question.replace("<image>", "").strip()
             if args.single_pred_prompt:
-                question = question + "\n" + "Answer with the option's letter from the given choices directly."
-            
+                question = (
+                    question
+                    + "\n"
+                    + "Answer with the option's letter from the given choices directly."
+                )
+
             if model.config.mm_use_im_start_end:
-                qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + '\n' + question
+                qs = (
+                    DEFAULT_IM_START_TOKEN
+                    + DEFAULT_IMAGE_TOKEN
+                    + DEFAULT_IM_END_TOKEN
+                    + "\n"
+                    + question
+                )
             else:
-                qs = DEFAULT_IMAGE_TOKEN + '\n' + question
+                qs = DEFAULT_IMAGE_TOKEN + "\n" + question
 
             conv = conv_templates[args.conv_mode].copy()
             conv.append_message(conv.roles[0], qs)
             conv.append_message(conv.roles[1], None)
             prompt = conv.get_prompt()
 
-            input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).cuda()
-            image = [Image.open(os.path.join(args.image_folder, instance["image"]))] if "image" in instance else []
+            input_ids = (
+                tokenizer_image_token(
+                    prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
+                )
+                .unsqueeze(0)
+                .cuda()
+            )
+            image = (
+                [Image.open(os.path.join(args.image_folder, instance["image"]))]
+                if "image" in instance
+                else []
+            )
             image_tensor = process_images(image, image_processor, model.config)[0]
 
             with torch.inference_mode():
@@ -70,13 +101,20 @@ def eval_model(args):
                     num_beams=args.num_beams,
                     # no_repeat_ngram_size=3,
                     max_new_tokens=context_len,
-                    use_cache=True)
+                    use_cache=True,
+                )
 
-            response = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+            response = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[
+                0
+            ].strip()
             print(instance, "---", response)
             matches = parse_tool_output(response)
             outputs.append(
-                {"question_id": instance["id"], "prompt": instance["conversations"][0]["value"], "text": matches[0][2].strip()}
+                {
+                    "question_id": instance["id"],
+                    "prompt": instance["conversations"][0]["value"],
+                    "text": matches[0][2].strip(),
+                }
             )
         except Exception as e:
             print(e)
@@ -91,13 +129,30 @@ def eval_model(args):
 
     io.save(args.answers_file, outputs)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-path", type=str, default="/home/tx-deepocean/data1/jxq/code/LLaVA-Med/llava-med-v1.5-mistral-7b-lora-mistral_instruct-heart2-chest2_slake1_path1_rad1_v4")
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default="/home/tx-deepocean/data1/jxq/code/LLaVA-Med/llava-med-v1.5-mistral-7b-lora-mistral_instruct-heart2-chest2_slake1_path1_rad1_v4",
+    )
     parser.add_argument("--model-base", type=str, default=None)
-    parser.add_argument("--image-folder", type=str, default="/home/tx-deepocean/data1/jxq/data/processed_m3/RAD-VQA/imgs")
-    parser.add_argument("--question-file", type=str, default="/home/tx-deepocean/data1/jxq/data/processed_m3/RAD-VQA/radvqa_test_instruct.json")
-    parser.add_argument("--answers-file", type=str, default="/home/tx-deepocean/data1/jxq/code/LLaVA-Med/eval/heart2-chest2_slake1_path1_rad1_v4/radvqa_test_instruct_answer.json")
+    parser.add_argument(
+        "--image-folder",
+        type=str,
+        default="/home/tx-deepocean/data1/jxq/data/processed_m3/RAD-VQA/imgs",
+    )
+    parser.add_argument(
+        "--question-file",
+        type=str,
+        default="/home/tx-deepocean/data1/jxq/data/processed_m3/RAD-VQA/radvqa_test_instruct.json",
+    )
+    parser.add_argument(
+        "--answers-file",
+        type=str,
+        default="/home/tx-deepocean/data1/jxq/code/LLaVA-Med/eval/heart2-chest2_slake1_path1_rad1_v4/radvqa_test_instruct_answer.json",
+    )
     parser.add_argument("--single-pred-prompt", action="store_true")
     parser.add_argument("--conv-mode", type=str, default="mistral_instruct")
     parser.add_argument("--num-chunks", type=int)

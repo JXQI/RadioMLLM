@@ -1,45 +1,42 @@
 """
 A model worker executes the model.
 """
-import sys, os
+
+import os
+import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src", "GroundingDINO"))
-from groundingdino.util import box_ops
-
 import argparse
 import asyncio
+import base64
 import dataclasses
-import logging
 import json
+import logging
 import os
 import sys
-import time
-from typing import List, Tuple, Union
 import threading
+import time
 import uuid
-import torchvision
-
 from io import BytesIO
-import base64
+from typing import List, Tuple, Union
 
-from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
+import groundingdino.datasets.transforms as T
 import numpy as np
 import requests
-from PIL import Image
-
-
+import torchvision
+from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from groundingdino.util import box_ops
 from groundingdino.util.inference import load_model, predict
-import groundingdino.datasets.transforms as T
-
+from PIL import Image
 
 try:
     from transformers import (
-        AutoTokenizer,
-        AutoModelForCausalLM,
-        LlamaTokenizer,
         AutoModel,
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        LlamaTokenizer,
     )
 except ImportError:
     from transformers import (
@@ -48,11 +45,12 @@ except ImportError:
         LLaMATokenizer,
         AutoModel,
     )
+
 import torch
 import torch.nn.functional as F
 import uvicorn
 
-from serve.constants import WORKER_HEART_BEAT_INTERVAL, ErrorCode, SERVER_ERROR_MSG
+from serve.constants import SERVER_ERROR_MSG, WORKER_HEART_BEAT_INTERVAL, ErrorCode
 from serve.utils import build_logger, pretty_print_semaphore
 
 GB = 1 << 30
@@ -184,13 +182,14 @@ class ModelWorker:
         }
 
     def load_image(self, image_path: str) -> Tuple[np.array, torch.Tensor]:
-        
 
         if os.path.exists(image_path):
             image_source = Image.open(image_path).convert("RGB")
         else:
             # base64 coding
-            image_source = Image.open(BytesIO(base64.b64decode(image_path))).convert("RGB")
+            image_source = Image.open(BytesIO(base64.b64decode(image_path))).convert(
+                "RGB"
+            )
 
         image = np.asarray(image_source)
         image_transformed, _ = self.transform(image_source, None)
@@ -207,21 +206,21 @@ class ModelWorker:
         # load image and run models
         image_np, image = self.load_image(image_path)
         boxes, logits, phrases = predict(
-            model=model, 
-            image=image, 
-            caption=text_prompt, 
-            box_threshold=box_threshold, 
+            model=model,
+            image=image,
+            caption=text_prompt,
+            box_threshold=box_threshold,
             text_threshold=text_threshold,
-            device=device
+            device=device,
         )
-        
+
         # add NMS to boxes
         boxes, logits, phrases = self.nms(boxes, logits, phrases)
         boxes = box_ops.box_cxcywh_to_xyxy(boxes)
 
         # import ipdb; ipdb.set_trace()
 
-        # to list format  
+        # to list format
         boxes = boxes.tolist()
         # round to 2 decimal places
         boxes = [[round(x, 2) for x in box] for box in boxes]
@@ -294,7 +293,6 @@ def create_background_tasks():
     return background_tasks
 
 
-
 @app.post("/worker_generate")
 async def api_generate(request: Request):
     params = await request.json()
@@ -307,9 +305,6 @@ async def api_generate(request: Request):
 @app.post("/worker_get_status")
 async def api_get_status(request: Request):
     return worker.get_status()
-
-
-
 
 
 @app.post("/model_details")
@@ -330,7 +325,9 @@ if __name__ == "__main__":
         "--model-path", type=str, default="src/groundingdinomed-checkpoint0005_slim.pth"
     )
     parser.add_argument(
-        "--model-config", type=str, default="src/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+        "--model-config",
+        type=str,
+        default="src/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py",
     )
     parser.add_argument(
         "--model-names",
@@ -344,7 +341,6 @@ if __name__ == "__main__":
     parser.add_argument("--no-register", action="store_true")
     args = parser.parse_args()
     logger.info(f"args: {args}")
-
 
     worker = ModelWorker(
         args.controller_address,

@@ -1,22 +1,25 @@
 """
 Common utilities.
 """
-from asyncio import AbstractEventLoop
+
 import json
 import logging
 import logging.handlers
 import os
 import platform
 import sys
-from typing import AsyncGenerator, Generator
 import warnings
+from asyncio import AbstractEventLoop
+from typing import AsyncGenerator, Generator
 
 import requests
 import torch
 
 from serve.constants import LOGDIR
 
-server_error_msg = "**NETWORK ERROR DUE TO HIGH TRAFFIC. PLEASE REGENERATE OR REFRESH THIS PAGE.**"
+server_error_msg = (
+    "**NETWORK ERROR DUE TO HIGH TRAFFIC. PLEASE REGENERATE OR REFRESH THIS PAGE.**"
+)
 
 handler = None
 visited_loggers = set()
@@ -233,9 +236,9 @@ def iter_over_async(
 def detect_language(text: str) -> str:
     """Detect the langauge of a string."""
     import polyglot  # pip3 install polyglot pyicu pycld2
+    import pycld2
     from polyglot.detect import Detector
     from polyglot.detect.base import logger as polyglot_logger
-    import pycld2
 
     polyglot_logger.setLevel("ERROR")
 

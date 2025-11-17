@@ -1,41 +1,37 @@
 """
 A model worker executes the model.
 """
-import sys, os
 
 import argparse
 import asyncio
+import base64
 import dataclasses
-import logging
 import json
+import logging
 import os
 import sys
-import time
-from typing import List, Tuple, Union
 import threading
+import time
 import uuid
-import torchvision
-from torchvision import transforms
-from open_clip import create_model_from_pretrained, get_tokenizer
-
 from io import BytesIO
-import base64
+from typing import List, Tuple, Union
 
-from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
 import numpy as np
 import requests
-from PIL import Image
-
+import torchvision
 from demo.inference_on_a_image import get_grounding_output
-
+from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from open_clip import create_model_from_pretrained, get_tokenizer
+from PIL import Image
+from torchvision import transforms
 
 try:
     from transformers import (
-        AutoTokenizer,
-        AutoModelForCausalLM,
-        LlamaTokenizer,
         AutoModel,
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        LlamaTokenizer,
     )
 except ImportError:
     from transformers import (
@@ -44,11 +40,12 @@ except ImportError:
         LLaMATokenizer,
         AutoModel,
     )
+
 import torch
 import torch.nn.functional as F
 import uvicorn
 
-from serve.constants import WORKER_HEART_BEAT_INTERVAL, ErrorCode, SERVER_ERROR_MSG
+from serve.constants import SERVER_ERROR_MSG, WORKER_HEART_BEAT_INTERVAL, ErrorCode
 from serve.utils import build_logger, pretty_print_semaphore
 
 GB = 1 << 30
@@ -98,8 +95,12 @@ class ModelWorker:
             )
             self.heart_beat_thread.start()
 
-        self.model, self.preprocess = create_model_from_pretrained('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
-        self.tokenizer = get_tokenizer('hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224')
+        self.model, self.preprocess = create_model_from_pretrained(
+            "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+        )
+        self.tokenizer = get_tokenizer(
+            "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+        )
         self.model.eval()
 
     def register_to_controller(self):
@@ -169,26 +170,29 @@ class ModelWorker:
             image_source = Image.open(image_path).convert("RGB")
         else:
             # base64 coding
-            image_source = Image.open(BytesIO(base64.b64decode(image_path))).convert("RGB")
+            image_source = Image.open(BytesIO(base64.b64decode(image_path))).convert(
+                "RGB"
+            )
 
         # image = np.asarray(image_source)
         return image_source
 
-
     def predict(self, image, preprocess, tokenizer, labels):
         image = preprocess(image).unsqueeze(0)  # Add batch dimension
         image = image.to(self.device)
-        
-        template = 'the photo can be classified as '
-        texts = tokenizer([template + l for l in labels], context_length=256).to(self.device)
-        
+
+        template = "the photo can be classified as "
+        texts = tokenizer([template + l for l in labels], context_length=256).to(
+            self.device
+        )
+
         with torch.no_grad():
             image_features, text_features, logit_scale = self.model(image, texts)
             logits = (logit_scale * image_features @ text_features.t()).softmax(dim=-1)
             top_pred = torch.topk(logits, 3)  # Retrieve top 3 predictions
             top_pred_indices = top_pred.indices.squeeze(0).tolist()
             top_pred_values = top_pred.values.squeeze(0).tolist()
-        
+
         predicted_labels = [labels[idx] for idx in top_pred_indices]
         return predicted_labels, top_pred_values
 
@@ -200,26 +204,27 @@ class ModelWorker:
         # load image and run models
         image = self.load_image(image_path)
         labels = [
-            'adenocarcinoma histopathology',
-            'brain MRI',
-            'covid line chart',
-            'diagnostic flowchart',
-            'diagnostic scatter plot',
-            'squamous cell carcinoma histopathology',
-            'immunohistochemistry histopathology',
-            'bone X-ray',
-            'chest X-ray',
-            'abdomen CT',
-            'lung CT',
-            'pie chart',
-            'hematoxylin and eosin histopathology',
-            'gross'
+            "adenocarcinoma histopathology",
+            "brain MRI",
+            "covid line chart",
+            "diagnostic flowchart",
+            "diagnostic scatter plot",
+            "squamous cell carcinoma histopathology",
+            "immunohistochemistry histopathology",
+            "bone X-ray",
+            "chest X-ray",
+            "abdomen CT",
+            "lung CT",
+            "pie chart",
+            "hematoxylin and eosin histopathology",
+            "gross",
         ]
-        self.model.to(device) 
-        predictions, logits = self.predict(image, self.preprocess, self.tokenizer, labels)
+        self.model.to(device)
+        predictions, logits = self.predict(
+            image, self.preprocess, self.tokenizer, labels
+        )
 
         return predictions[0]
-
 
     def generate_gate(self, params):
         try:
@@ -263,7 +268,6 @@ def create_background_tasks():
     return background_tasks
 
 
-
 @app.post("/worker_generate")
 async def api_generate(request: Request):
     params = await request.json()
@@ -276,9 +280,6 @@ async def api_generate(request: Request):
 @app.post("/worker_get_status")
 async def api_get_status(request: Request):
     return worker.get_status()
-
-
-
 
 
 @app.post("/model_details")
@@ -306,7 +307,6 @@ if __name__ == "__main__":
     parser.add_argument("--no-register", action="store_true")
     args = parser.parse_args()
     logger.info(f"args: {args}")
-
 
     worker = ModelWorker(
         args.controller_address,

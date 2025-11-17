@@ -1,0 +1,65 @@
+#!/bin/bash
+
+#SBATCH --job-name=slakevqa_eval
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:2
+#SBATCH --time=1:00:00
+#SBATCH --partition=interactive,interactive_singlenode,grizzly,polar,polar2,polar3,polar4
+#SBATCH --dependency=singleton
+
+# Copyright (c) MONAI Consortium
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# set common env vars
+# source set_env.sh
+
+# if [[ $# -ne 3 ]]; then
+#     print_usage
+#     exit 1
+# fi
+
+export MODEL_PATH=$1
+export OUTPUT_FOLDER_NAME=$2
+export CONV_MODE=$3
+
+
+DATA_PATH="/home/tx-deepocean/data2/jxq/data/mmedagent/src/heart/processed/corrected_heart_chest_thougts_struct_conv_v3_1.json"
+IMAGE_DIR="/home/tx-deepocean/data2/jxq/data/mmedagent/src/"
+OUTPUT_ROOT="$OUTPUT_FOLDER_NAME/expert"
+OUTPUT_PATH="$OUTPUT_ROOT/outputs.jsonl"
+RESULT_PATH="$OUTPUT_ROOT/results.json"
+
+
+# python -m llava.eval.model_vqa_expert \
+#         --model-path $MODEL_PATH \
+#         --question-file $DATA_PATH \
+#         --image-folder $IMAGE_DIR \
+#         --answers-file $OUTPUT_PATH \
+#         --num-chunks 1 \
+#         --chunk-idx 0 \
+#         # --single-pred-prompt \
+#         --conv-mode $CONV_MODE
+
+# torchrun --nproc_per_node=4 -m llava.eval.model_vqa_expert \
+#         --model-path $MODEL_PATH \
+#         --question-file $DATA_PATH \
+#         --image-folder $IMAGE_DIR \
+#         --answers-file $OUTPUT_PATH \
+#         # --num-chunks 1 \
+#         # --chunk-idx 0 \
+#         # --single-pred-prompt \
+#         --conv-mode $CONV_MODE 
+
+python $PROJECT_PATH/m3/eval/scripts/metric_expert.py \
+    --input $DATA_PATH \
+    --answers $OUTPUT_PATH \
+    --output $RESULT_PATH 
+

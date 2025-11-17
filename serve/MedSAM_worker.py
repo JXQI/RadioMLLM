@@ -1,39 +1,38 @@
 """
 A model worker executes the model.
 """
-import sys, os
+
+import os
+import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src", "MedSAM"))
+import argparse
+import asyncio
+import base64
+import os
+import sys
+import threading
+import time
+import uuid
+from io import BytesIO
+from typing import List, Tuple, Union
+
+import numpy as np
+import pycocotools.mask as mask_util
+import requests
+from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from PIL import Image
 from segment_anything import build_sam
 from segment_anything.predictor import SamPredictor
 
-import argparse
-import asyncio
-import os
-import sys
-import time
-from typing import List, Tuple, Union
-import threading
-import uuid
-
-from io import BytesIO
-import base64
-
-from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
-import numpy as np
-import requests
-from PIL import Image
-import pycocotools.mask as mask_util
-
-
 try:
     from transformers import (
-        AutoTokenizer,
-        AutoModelForCausalLM,
-        LlamaTokenizer,
         AutoModel,
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        LlamaTokenizer,
     )
 except ImportError:
     from transformers import (
@@ -42,11 +41,12 @@ except ImportError:
         LLaMATokenizer,
         AutoModel,
     )
+
 import torch
 import torch.nn.functional as F
 import uvicorn
 
-from serve.constants import WORKER_HEART_BEAT_INTERVAL, ErrorCode, SERVER_ERROR_MSG
+from serve.constants import SERVER_ERROR_MSG, WORKER_HEART_BEAT_INTERVAL, ErrorCode
 from serve.utils import build_logger, pretty_print_semaphore
 
 GB = 1 << 30
@@ -94,13 +94,10 @@ class ModelWorker:
             )
             self.heart_beat_thread.start()
 
-
         # load sam model
         self.sam = build_sam(checkpoint=sam_path)
         self.sam.to(device=device)
         self.sam_predictor = SamPredictor(self.sam)
-
-    
 
     def register_to_controller(self):
         logger.info("Register to controller")
@@ -165,13 +162,14 @@ class ModelWorker:
         }
 
     def load_image(self, image_path: str) -> Tuple[np.array, torch.Tensor]:
-        
 
         if os.path.exists(image_path):
             image_source = Image.open(image_path).convert("RGB")
         else:
             # base64 coding
-            image_source = Image.open(BytesIO(base64.b64decode(image_path))).convert("RGB")
+            image_source = Image.open(BytesIO(base64.b64decode(image_path))).convert(
+                "RGB"
+            )
 
         image = np.asarray(image_source)
         # image_transformed, _ = self.transform(image_source, None)
@@ -180,13 +178,19 @@ class ModelWorker:
     def generate_stream_func(self, model, params, device):
         # get inputs
         image_path = params["image"]
-        
-        boxes = params.get("boxes", None)                   # b, 4
-        points = params.get("points", None)                 # b, n, 2
-        point_labels = params.get("point_labels", None)     # b, n. (1 indicates a foreground point and 0 indicates a background point.) 
 
-        assert not (boxes is None and points is None), "boxes and points cannot be both None"
-        assert not (boxes is not None and points is not None), "boxes and points cannot be both not None"
+        boxes = params.get("boxes", None)  # b, 4
+        points = params.get("points", None)  # b, n, 2
+        point_labels = params.get(
+            "point_labels", None
+        )  # b, n. (1 indicates a foreground point and 0 indicates a background point.)
+
+        assert not (
+            boxes is None and points is None
+        ), "boxes and points cannot be both None"
+        assert not (
+            boxes is not None and points is not None
+        ), "boxes and points cannot be both not None"
 
         image_np, _ = self.load_image(image_path)
         h, w, _ = image_np.shape
@@ -197,53 +201,65 @@ class ModelWorker:
                 boxes_tensor = torch.Tensor(boxes).to(device)
                 boxes_xyxy = boxes_tensor * torch.Tensor([w, h, w, h]).to(device)
                 self.sam_predictor.set_image(image_np)
-                transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image_np.shape[:2]).to(device)
+                transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(
+                    boxes_xyxy, image_np.shape[:2]
+                ).to(device)
                 # import ipdb; ipdb.set_trace()
                 masks, _, _ = self.sam_predictor.predict_torch(
-                            point_coords = None,
-                            point_labels = None,
-                            boxes = transformed_boxes,
-                            multimask_output = False,
-                        )
-                masks = masks[:, 0] # B, H, W
+                    point_coords=None,
+                    point_labels=None,
+                    boxes=transformed_boxes,
+                    multimask_output=False,
+                )
+                masks = masks[:, 0]  # B, H, W
 
                 # encoder masks to strs
                 maskrls_list = []
                 for mask in masks:
-                    mask_rle = mask_util.encode(np.array(mask[:, :, None].cpu(), order="F"))[0]
+                    mask_rle = mask_util.encode(
+                        np.array(mask[:, :, None].cpu(), order="F")
+                    )[0]
                     mask_rle["counts"] = mask_rle["counts"].decode("utf-8")
                     maskrls_list.append(mask_rle)
             else:
                 maskrls_list = []
         elif points is not None:
-            assert point_labels is not None, "point_labels cannot be None when points is not None"
+            assert (
+                point_labels is not None
+            ), "point_labels cannot be None when points is not None"
             if len(points) > 0:
-                points_tensor = torch.Tensor(points).to(device) * torch.Tensor([w, h]).to(device)
+                points_tensor = torch.Tensor(points).to(device) * torch.Tensor(
+                    [w, h]
+                ).to(device)
                 self.sam_predictor.set_image(image_np)
-                transformed_points = self.sam_predictor.transform.apply_coords_torch(points_tensor, image_np.shape[:2]).to(device)
+                transformed_points = self.sam_predictor.transform.apply_coords_torch(
+                    points_tensor, image_np.shape[:2]
+                ).to(device)
 
                 point_labels_tensor = torch.Tensor(point_labels).to(device)
                 # import ipdb; ipdb.set_trace()
                 masks, _, _ = self.sam_predictor.predict_torch(
-                            point_coords = transformed_points, # b, n, 2
-                            point_labels = point_labels_tensor, # b, n. 1 indicates a foreground point and 0 indicates a background point. 
-                            boxes = None,
-                            multimask_output = False,
-                        )
-                masks = masks[:, 0] # B, H, W
+                    point_coords=transformed_points,  # b, n, 2
+                    point_labels=point_labels_tensor,  # b, n. 1 indicates a foreground point and 0 indicates a background point.
+                    boxes=None,
+                    multimask_output=False,
+                )
+                masks = masks[:, 0]  # B, H, W
 
                 # encoder masks to strs
                 maskrls_list = []
                 for mask in masks:
-                    mask_rle = mask_util.encode(np.array(mask[:, :, None].cpu(), order="F"))[0]
+                    mask_rle = mask_util.encode(
+                        np.array(mask[:, :, None].cpu(), order="F")
+                    )[0]
                     mask_rle["counts"] = mask_rle["counts"].decode("utf-8")
                     maskrls_list.append(mask_rle)
             else:
-                maskrls_list = []            
-        
+                maskrls_list = []
+
         pred_dict = {}
-        pred_dict['masks_rle'] = maskrls_list
-        pred_dict['boxes'] = boxes
+        pred_dict["masks_rle"] = maskrls_list
+        pred_dict["boxes"] = boxes
         return pred_dict
 
     def generate_gate(self, params):
@@ -356,7 +372,6 @@ def create_background_tasks():
     return background_tasks
 
 
-
 @app.post("/worker_generate")
 async def api_generate(request: Request):
     params = await request.json()
@@ -369,9 +384,6 @@ async def api_generate(request: Request):
 @app.post("/worker_get_status")
 async def api_get_status(request: Request):
     return worker.get_status()
-
-
-
 
 
 @app.post("/model_details")
@@ -388,9 +400,7 @@ if __name__ == "__main__":
         "--controller-address", type=str, default="http://localhost:20001"
     )
 
-    parser.add_argument(
-        "--sam-path", type=str, default="src/medsam_vit_b.pth"
-    )
+    parser.add_argument("--sam-path", type=str, default="src/medsam_vit_b.pth")
     parser.add_argument(
         "--model-names",
         default="MedSAM",
@@ -403,7 +413,6 @@ if __name__ == "__main__":
     parser.add_argument("--no-register", action="store_true")
     args = parser.parse_args()
     logger.info(f"args: {args}")
-
 
     worker = ModelWorker(
         args.controller_address,

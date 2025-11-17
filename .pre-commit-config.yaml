@@ -1,7 +1,6 @@
 default_language_version:
   python: python3.11
-default_stages: [commit]
-exclude: (^heart_engine/module/)
+default_stages: [pre-commit]
 
 repos:
   - repo: local
@@ -9,25 +8,25 @@ repos:
       - id: isort
         name: isort
         args: ["--profile", "black"]
-        entry: poetry run isort --profile black
+        entry: isort --profile black
         language: python
         types: [python]
 
       - id: black
         name: black
-        entry: poetry run black
+        entry: black
         language: python
         types: [python]
 
       - id: flake8
         name: flake8
-        entry: poetry run flake8
+        entry: flake8
         language: python
         types: [python]
 
-      # - id: mypy
-      #   name: mypy
-      #   entry: poetry run mypy .
-      #   language: python
-      #   types: [python]
-      #   pass_filenames: false
+      - id: mypy
+        name: mypy
+        entry: mypy .
+        language: python
+        types: [python]
+        pass_filenames: false

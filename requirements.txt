@@ -1,0 +1,16 @@
+-i https://mirrors.aliyun.com/pypi/simple/
+--trusted-host mirrors.aliyun.com
+langchain==0.3.27
+langchain-community==0.3.29
+langchain-core==0.3.76
+langchain-deepseek==0.1.4
+langchain-openai==0.3.33
+langchain-text-splitters==0.3.11
+langgraph==0.6.10
+langgraph-checkpoint==2.1.2
+langgraph-prebuilt==0.6.4
+langgraph-sdk==0.2.9
+langsmith==0.4.30
+jq==1.10.0
+dashscope==1.24.6
+faiss-cpu==1.12.0

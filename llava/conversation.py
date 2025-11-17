@@ -1,15 +1,16 @@
-import dataclasses
-from enum import auto, Enum
-from typing import List, Tuple
 import base64
-from io import BytesIO
-from PIL import Image
+import dataclasses
 import os
 import re
+from enum import Enum, auto
+from io import BytesIO
+from typing import List, Tuple
+
 import torchvision.transforms.functional as F
+from PIL import Image
+
 
 def parse_tool_output(text):
-    print(text)
     try:
         pattern = r'"thoughts🤔"(.*)"actions🚀"(.*)"value👉"(.*)'
         matches = re.findall(pattern, text, re.DOTALL)
@@ -19,7 +20,6 @@ def parse_tool_output(text):
         # print(e)
         matches = None
         return matches
-    print(matches)
     return matches
 
 
@@ -43,15 +43,18 @@ def get_placehold(text):
     res += '"'
     return res
 
+
 def parse_msg(msg):
     if len(msg) == 3:
         return msg[0], msg[1], msg[2], None
     if len(msg) == 4:
         return msg[0], msg[1], msg[2], msg[3]
     raise ValueError(f"Invalid msg with len {len(msg)}: {msg}")
-                     
+
+
 class SeparatorStyle(Enum):
     """Different separator style."""
+
     SINGLE = auto()
     TWO = auto()
     MPT = auto()
@@ -63,6 +66,7 @@ class SeparatorStyle(Enum):
 @dataclasses.dataclass
 class Conversation:
     """A class that keeps all conversation history."""
+
     system: str
     roles: List[str]
     messages: List[List[str]]
@@ -80,7 +84,7 @@ class Conversation:
             messages = self.messages.copy()
             init_role, init_msg = messages[0].copy()
             init_msg = init_msg[0].replace("<image>", "").strip()
-            if 'mmtag' in self.version:
+            if "mmtag" in self.version:
                 messages[0] = (init_role, init_msg)
                 messages.insert(0, (self.roles[0], "<Image><image></Image>"))
                 messages.insert(1, (self.roles[1], "Received."))
@@ -119,7 +123,9 @@ class Conversation:
                 else:
                     ret += role
         elif self.sep_style == SeparatorStyle.LLAMA_2:
-            wrap_sys = lambda msg: f"<<SYS>>\n{msg}\n<</SYS>>\n\n" if len(msg) > 0 else msg
+            wrap_sys = lambda msg: (
+                f"<<SYS>>\n{msg}\n<</SYS>>\n\n" if len(msg) > 0 else msg
+            )
             wrap_inst = lambda msg: f"[INST] {msg} [/INST]"
             ret = ""
 
@@ -130,7 +136,8 @@ class Conversation:
                 if message:
                     if type(message) is tuple:
                         message, _, _, _ = parse_msg(message)
-                    if i == 0: message = wrap_sys(self.system) + message
+                    if i == 0:
+                        message = wrap_sys(self.system) + message
                     if i % 2 == 0:
                         message = wrap_inst(message)
                         ret += self.sep + message
@@ -145,7 +152,7 @@ class Conversation:
             for i, (role, message) in enumerate(messages):
                 if message:
                     if type(message) is tuple:
-                         message, _, _, _ = parse_msg(message)
+                        message, _, _, _ = parse_msg(message)
                     ret += message + seps[i % 2]
                 else:
                     ret += ""
@@ -161,7 +168,8 @@ class Conversation:
                 if message:
                     if type(message) is tuple:
                         message, _, _, _ = parse_msg(message)
-                    if i == 0: message = self.system + " " + message.strip()
+                    if i == 0:
+                        message = self.system + " " + message.strip()
                     if i % 2 == 0:
                         message = wrap_inst(message)
                         ret += message
@@ -203,7 +211,7 @@ class Conversation:
 
     def get_images(self, return_pil=False):
         images = []
-        for i, (role, msg) in enumerate(self.messages[self.offset:]):
+        for i, (role, msg) in enumerate(self.messages[self.offset :]):
             # if i % 2 == 0:
             if len(self.roles) > 2 and role == self.roles[2]:
                 continue
@@ -211,30 +219,39 @@ class Conversation:
                 if type(msg) is tuple:
                     import base64
                     from io import BytesIO
+
                     from PIL import Image
+
                     # msg, image, image_process_mode = msg
-                    msg, image, image_process_mode, sketch_mask = parse_msg(
-                        msg)
+                    msg, image, image_process_mode, sketch_mask = parse_msg(msg)
                     if image_process_mode == "Pad":
+
                         def expand2square(pil_img, background_color=(122, 116, 104)):
                             width, height = pil_img.size
                             if width == height:
                                 return pil_img
                             elif width > height:
-                                result = Image.new(pil_img.mode, (width, width), background_color)
+                                result = Image.new(
+                                    pil_img.mode, (width, width), background_color
+                                )
                                 result.paste(pil_img, (0, (width - height) // 2))
                                 return result
                             else:
-                                result = Image.new(pil_img.mode, (height, height), background_color)
+                                result = Image.new(
+                                    pil_img.mode, (height, height), background_color
+                                )
                                 result.paste(pil_img, ((height - width) // 2, 0))
                                 return result
+
                         image = expand2square(image)
                     elif image_process_mode in ["Default", "Crop"]:
                         pass
                     elif image_process_mode == "Resize":
                         image = image.resize((336, 336))
                     else:
-                        raise ValueError(f"Invalid image_process_mode: {image_process_mode}")
+                        raise ValueError(
+                            f"Invalid image_process_mode: {image_process_mode}"
+                        )
                     max_hw, min_hw = max(image.size), min(image.size)
                     aspect_ratio = max_hw / min_hw
                     max_len, min_len = 800, 400
@@ -258,7 +275,7 @@ class Conversation:
 
     def get_raw_images(self, return_pil=False, image_process_mode=None):
         images = []
-        for i, (role, msg) in enumerate(self.messages[self.offset:]):
+        for i, (role, msg) in enumerate(self.messages[self.offset :]):
             if len(self.roles) > 2 and role == self.roles[2]:
                 continue
             if role == self.roles[0]:
@@ -266,7 +283,9 @@ class Conversation:
                 if type(msg) is tuple:
                     import base64
                     from io import BytesIO
+
                     from PIL import Image
+
                     msg, img, _, sketch_mask = parse_msg(msg)
 
                     # resize for large images
@@ -286,18 +305,18 @@ class Conversation:
                     else:
                         buffered = BytesIO()
                         img.save(buffered, format="PNG")
-                        img_b64_str = base64.b64encode(
-                            buffered.getvalue()).decode()
+                        img_b64_str = base64.b64encode(buffered.getvalue()).decode()
                         images.append(img_b64_str)
         return images
 
     def tools_filter_msg(self, msg):
         return msg
-    
+
     def merge_output(self, ret, with_debug_parameter=False):
         # print(f'with_debug_parameter: {with_debug_parameter}')
-        assert isinstance(
-            ret, list), "ret should be a list, but got {}".format(type(ret))
+        assert isinstance(ret, list), "ret should be a list, but got {}".format(
+            type(ret)
+        )
 
         ret_new = []
         i = 0
@@ -318,7 +337,7 @@ class Conversation:
             # for the case with image
             if text.startswith('<img src="data:image/png;base64'):
                 if len(ret_new) > 0:
-                    ret_new[-1] = [ret_new[-1][0] + '\n' + ret[i][0], None]
+                    ret_new[-1] = [ret_new[-1][0] + "\n" + ret[i][0], None]
                 else:
                     ret_new.append(ret[i])
                 i += 1
@@ -334,19 +353,20 @@ class Conversation:
 
                     action_json = eval(action)
                     # if len(action_json) > 0:
-                    if (len(action_json) > 0):
+                    if len(action_json) > 0:
                         # tool use branch
-                        res_value = f'"thoughts🤔" {matches[0][0].strip()}\n' +\
-                             f'"actions🚀" {matches[0][1].strip()}\n' \
-                           +  f'"value👉" {matches[0][2].strip()}'
+                        res_value = (
+                            f'"thoughts🤔" {matches[0][0].strip()}\n'
+                            + f'"actions🚀" {matches[0][1].strip()}\n'
+                            + f'"value👉" {matches[0][2].strip()}'
+                        )
                         res_value = make_it_small_html(res_value)
 
                         # explore next
                         matches_next2 = None
-                        if (i + 1 < len(ret)):
+                        if i + 1 < len(ret):
                             # get next message
-                            text_next: str = ret[i +
-                                                 1][0].strip().replace("\n\n", "\n")
+                            text_next: str = ret[i + 1][0].strip().replace("\n\n", "\n")
                             if len(ret_new) > 0 and "model outputs:" in text_next:
                                 # auged ques
                                 text_next_html = make_it_small_html(text_next)
@@ -354,23 +374,33 @@ class Conversation:
 
                                 # explore next2
                                 if i + 2 < len(ret):
-                                    text_next2: str = ret[i+2][0].strip()
+                                    text_next2: str = ret[i + 2][0].strip()
                                     # if text_next2.startswith('"th'):
-                                    matches_next2 = parse_tool_output(
-                                        text_next2)
+                                    matches_next2 = parse_tool_output(text_next2)
 
                                     if matches_next2 is not None:
-                                        text_next2_html = f'"thoughts🤔" {matches_next2[0][0].strip()}\n' + \
-                                            f'"actions🚀" {matches_next2[0][1].strip()}\n' + \
-                                            f'"value👉"'
+                                        text_next2_html = (
+                                            f'"thoughts🤔" {matches_next2[0][0].strip()}\n'
+                                            + f'"actions🚀" {matches_next2[0][1].strip()}\n'
+                                            + f'"value👉"'
+                                        )
                                         text_next2_html = make_it_small_html(
-                                            text_next2_html)
-                                        res_value = res_value + get_hr_html() + text_next2_html
-                                        res_value = res_value + \
-                                            f'\n{matches_next2[0][2].strip()}'
+                                            text_next2_html
+                                        )
+                                        res_value = (
+                                            res_value + get_hr_html() + text_next2_html
+                                        )
+                                        res_value = (
+                                            res_value
+                                            + f"\n{matches_next2[0][2].strip()}"
+                                        )
                                         i += 1
                                     else:
-                                        res_value = res_value + get_hr_html() + make_it_small_html(text_next2)
+                                        res_value = (
+                                            res_value
+                                            + get_hr_html()
+                                            + make_it_small_html(text_next2)
+                                        )
                                         i += 1
                                 i += 1
 
@@ -386,23 +416,22 @@ class Conversation:
                     else:
                         # regular conv branch
                         if with_debug_parameter:
-                            res_value = f'"thoughts🤔" {matches[0][0].strip()}\n' +\
-                                 f'"actions🚀" {matches[0][1].strip()}\n' \
-                               +  f'"value👉"\n'
+                            res_value = (
+                                f'"thoughts🤔" {matches[0][0].strip()}\n'
+                                + f'"actions🚀" {matches[0][1].strip()}\n'
+                                + f'"value👉"\n'
+                            )
                             res_value = make_it_small_html(res_value)
-                            res_value = res_value + f'{matches[0][2].strip()}'
+                            res_value = res_value + f"{matches[0][2].strip()}"
                         else:
-                            res_value = f'{matches[0][2].strip()}'
+                            res_value = f"{matches[0][2].strip()}"
 
                         ret_new.append([res_value, None])
                 else:
                     if with_debug_parameter:
                         ret_new.append(ret[i])
                     else:
-                        ret_new.append([
-                            get_placehold(ret[i][0].strip()),
-                            None
-                        ])
+                        ret_new.append([get_placehold(ret[i][0].strip()), None])
             else:
                 ret_new.append(ret[i])
             i += 1
@@ -412,6 +441,7 @@ class Conversation:
     def image_to_url(self, image):
         import base64
         from io import BytesIO
+
         max_hw, min_hw = max(image.size), min(image.size)
         aspect_ratio = max_hw / min_hw
         max_len, min_len = 800, 400
@@ -426,14 +456,14 @@ class Conversation:
         buffered = BytesIO()
         image.save(buffered, format="JPEG")
         img_b64_str = base64.b64encode(buffered.getvalue()).decode()
-        img_str = f'<img src="data:image/png;base64,{img_b64_str}" alt="user upload image" />'
+        img_str = (
+            f'<img src="data:image/png;base64,{img_b64_str}" alt="user upload image" />'
+        )
         return img_str
-    
 
-    
     def to_gradio_chatbot(self, with_debug_parameter=False):
         ret = []
-        for i, (role, msg) in enumerate(self.messages[self.offset:]):
+        for i, (role, msg) in enumerate(self.messages[self.offset :]):
             # if i % 2 == 0:
             if len(self.roles) > 2 and role == self.roles[2]:
                 continue
@@ -442,14 +472,14 @@ class Conversation:
                 if type(msg) is tuple:
                     import base64
                     from io import BytesIO
+
                     # msg, image, image_process_mode = msg
-                    msg, image, image_process_mode, sketch_mask = parse_msg(
-                        msg)
+                    msg, image, image_process_mode, sketch_mask = parse_msg(msg)
                     if not isinstance(image, list):
                         img_str = self.image_to_url(image)
                         if i == 0:
                             ret.append([img_str, None])
-                        msg = msg.replace('<image>', '').strip()
+                        msg = msg.replace("<image>", "").strip()
                         if role == self.roles[1]:
                             msg = self.tools_filter_msg(msg)
                         if len(msg) > 0:
@@ -460,7 +490,7 @@ class Conversation:
                         # a list of image
                         if role == self.roles[1]:
                             msg = self.tools_filter_msg(msg)
-                            msg = msg.replace('<image>', '').strip()
+                            msg = msg.replace("<image>", "").strip()
                         if len(msg) > 0:
                             ret.append([msg, None])
                         for j, img in enumerate(image):
@@ -485,30 +515,41 @@ class Conversation:
             sep_style=self.sep_style,
             sep=self.sep,
             sep2=self.sep2,
-            version=self.version)
+            version=self.version,
+        )
 
     def dict(self, force_str=False):
         def remove_pil(x, force_str):
             if not force_str:
                 return x
-            
+
             if isinstance(x, Image.Image):
                 return base64.b64encode(x)
-            
+
             if isinstance(x, list):
                 return [remove_pil(y, force_str) for y in x]
             if isinstance(x, tuple):
                 return [remove_pil(y, force_str) for y in x]
             if isinstance(x, dict):
                 return {k: remove_pil(v, force_str) for k, v in x.items()}
-            
+
             return x
-            
+
         if len(self.get_images()) > 0:
             return {
                 "system": self.system,
                 "roles": self.roles,
-                "messages": [[x, remove_pil(y[0], force_str=force_str) if type(y) is tuple else y] for x, y in self.messages],
+                "messages": [
+                    [
+                        x,
+                        (
+                            remove_pil(y[0], force_str=force_str)
+                            if type(y) is tuple
+                            else y
+                        ),
+                    ]
+                    for x, y in self.messages
+                ],
                 "offset": self.offset,
                 "sep": self.sep,
                 "sep2": self.sep2,
@@ -523,14 +564,17 @@ class Conversation:
         }
 
 
-
 conv_vicuna_v0 = Conversation(
     system="A chat between a curious human and an artificial intelligence assistant. "
-           "The assistant gives helpful, detailed, and polite answers to the human's questions.",
+    "The assistant gives helpful, detailed, and polite answers to the human's questions.",
     roles=("Human", "Assistant"),
     messages=(
-        ("Human", "What are the key differences between renewable and non-renewable energy sources?"),
-        ("Assistant",
+        (
+            "Human",
+            "What are the key differences between renewable and non-renewable energy sources?",
+        ),
+        (
+            "Assistant",
             "Renewable energy sources are those that can be replenished naturally in a relatively "
             "short amount of time, such as solar, wind, hydro, geothermal, and biomass. "
             "Non-renewable energy sources, on the other hand, are finite and will eventually be "
@@ -548,7 +592,8 @@ conv_vicuna_v0 = Conversation(
             "5. Flexibility: Renewable energy sources are often more flexible and can be adapted to different "
             "situations and needs, while non-renewable sources are more rigid and inflexible.\n"
             "6. Sustainability: Renewable energy sources are more sustainable over the long term, while "
-            "non-renewable sources are not, and their depletion can lead to economic and social instability.\n")
+            "non-renewable sources are not, and their depletion can lead to economic and social instability.\n",
+        ),
     ),
     offset=2,
     sep_style=SeparatorStyle.SINGLE,
@@ -582,8 +627,8 @@ If a question does not make any sense, or is not factually coherent, explain why
 
 conv_llava_llama_2 = Conversation(
     system="You are a helpful language and vision assistant. "
-           "You are able to understand the visual content that the user provides, "
-           "and assist the user with a variety of tasks using natural language.",
+    "You are able to understand the visual content that the user provides, "
+    "and assist the user with a variety of tasks using natural language.",
     roles=("USER", "ASSISTANT"),
     version="llama_v2",
     messages=(),
@@ -607,8 +652,7 @@ A conversation between a user and an LLM-based AI assistant. The assistant gives
 conv_llava_plain = Conversation(
     system="",
     roles=("", ""),
-    messages=(
-    ),
+    messages=(),
     offset=0,
     sep_style=SeparatorStyle.PLAIN,
     sep="\n",
@@ -616,10 +660,9 @@ conv_llava_plain = Conversation(
 
 conv_llava_v0 = Conversation(
     system="A chat between a curious human and an artificial intelligence assistant. "
-           "The assistant gives helpful, detailed, and polite answers to the human's questions.",
+    "The assistant gives helpful, detailed, and polite answers to the human's questions.",
     roles=("Human", "Assistant"),
-    messages=(
-    ),
+    messages=(),
     offset=0,
     sep_style=SeparatorStyle.SINGLE,
     sep="###",
@@ -627,11 +670,10 @@ conv_llava_v0 = Conversation(
 
 conv_llava_v0_mmtag = Conversation(
     system="A chat between a curious user and an artificial intelligence assistant. "
-           "The assistant is able to understand the visual content that the user provides, and assist the user with a variety of tasks using natural language."
-           "The visual content will be provided with the following format: <Image>visual content</Image>.",
+    "The assistant is able to understand the visual content that the user provides, and assist the user with a variety of tasks using natural language."
+    "The visual content will be provided with the following format: <Image>visual content</Image>.",
     roles=("Human", "Assistant"),
-    messages=(
-    ),
+    messages=(),
     offset=0,
     sep_style=SeparatorStyle.SINGLE,
     sep="###",
@@ -640,7 +682,7 @@ conv_llava_v0_mmtag = Conversation(
 
 conv_llava_v1 = Conversation(
     system="A chat between a curious human and an artificial intelligence assistant. "
-           "The assistant gives helpful, detailed, and polite answers to the human's questions.",
+    "The assistant gives helpful, detailed, and polite answers to the human's questions.",
     roles=("USER", "ASSISTANT"),
     version="v1",
     messages=(),
@@ -652,8 +694,8 @@ conv_llava_v1 = Conversation(
 
 conv_llava_v1_mmtag = Conversation(
     system="A chat between a curious user and an artificial intelligence assistant. "
-           "The assistant is able to understand the visual content that the user provides, and assist the user with a variety of tasks using natural language."
-           "The visual content will be provided with the following format: <Image>visual content</Image>.",
+    "The assistant is able to understand the visual content that the user provides, and assist the user with a variety of tasks using natural language."
+    "The visual content will be provided with the following format: <Image>visual content</Image>.",
     roles=("USER", "ASSISTANT"),
     messages=(),
     offset=0,
@@ -682,7 +724,6 @@ conv_templates = {
     "vicuna_v1": conv_vicuna_v1,
     "llama_2": conv_llama_2,
     "mistral_instruct": conv_mistral_instruct,
-
     "plain": conv_llava_plain,
     "v0_plain": conv_llava_plain,
     "llava_v0": conv_llava_v0,

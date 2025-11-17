@@ -1,33 +1,34 @@
 """
 A model worker executes the model.
 """
-import sys, os
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src", "ChatCAD_R"))
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from util import *
 
-import argparse
-import asyncio
 import os
 import sys
-import time
-from typing import List, Tuple, Union
-import threading
-import uuid
-import torchvision
 
-from io import BytesIO
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src", "ChatCAD_R"))
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+import argparse
+import asyncio
 import base64
+import os
+import sys
+import threading
+import time
+import uuid
+from io import BytesIO
+from typing import List, Tuple, Union
 
-from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
 import numpy as np
-import requests
-from PIL import Image
-import uvicorn
 import openai
+import requests
+import torchvision
+import uvicorn
+from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from PIL import Image
+from util import *
 
-from serve.constants import WORKER_HEART_BEAT_INTERVAL, ErrorCode, SERVER_ERROR_MSG
+from serve.constants import SERVER_ERROR_MSG, WORKER_HEART_BEAT_INTERVAL, ErrorCode
 from serve.utils import build_logger, pretty_print_semaphore
 
 GB = 1 << 30
@@ -48,6 +49,7 @@ model_semaphore = None
 # chatbot = initialize_chatbot("")  # put your api key
 chatbot = None
 
+
 def heart_beat_worker(controller):
     while True:
         time.sleep(WORKER_HEART_BEAT_INTERVAL)
@@ -56,12 +58,7 @@ def heart_beat_worker(controller):
 
 class ModelWorker:
     def __init__(
-        self,
-        controller_addr,
-        worker_addr,
-        worker_id,
-        no_register,
-        model_names
+        self, controller_addr, worker_addr, worker_id, no_register, model_names
     ):
         self.controller_addr = controller_addr
         self.worker_addr = worker_addr
@@ -69,7 +66,6 @@ class ModelWorker:
         self.model_names = model_names
 
         logger.info(f"Loading the model {self.model_names} on worker {worker_id} ...")
-        
 
         if not no_register:
             self.register_to_controller()
@@ -145,25 +141,24 @@ class ModelWorker:
             image_source = Image.open(image_path).convert("RGB")
         else:
             # base64 coding
-            image_source = Image.open(BytesIO(base64.b64decode(image_path))).convert("RGB")
+            image_source = Image.open(BytesIO(base64.b64decode(image_path))).convert(
+                "RGB"
+            )
         # image = np.asarray(image_source)
         return image_source
 
     def generate_stream_func(self, params):
         image_path = params["image"]
         image = self.load_image(image_path)
-        report = MRG(image, api_key=params["openai_key"],chatbot=chatbot) 
+        report = MRG(image, api_key=params["openai_key"], chatbot=chatbot)
 
         return report
-
 
     def generate_gate(self, params):
         try:
 
             ret = {"text": "", "error_code": 0}
-            ret = self.generate_stream_func(
-                params
-            )
+            ret = self.generate_stream_func(params)
         except (ValueError, RuntimeError) as e:
             ret = {
                 "text": f"{SERVER_ERROR_MSG}\n\n({e})",
@@ -232,7 +227,6 @@ if __name__ == "__main__":
     parser.add_argument("--no-register", action="store_true")
     args = parser.parse_args()
     logger.info(f"args: {args}")
-
 
     worker = ModelWorker(
         args.controller_address,

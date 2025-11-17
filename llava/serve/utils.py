@@ -1,15 +1,20 @@
-from typing import Tuple, List
-
 import re
+from typing import List, Tuple
+
 import cv2
 import numpy as np
 import supervision as sv
 import torch
-from PIL import Image
 from backendmpr.pic import Pic
+from PIL import Image
 
 
-def annotate_xyxy(image_source: np.ndarray, boxes: torch.Tensor, logits: torch.Tensor, phrases: List[str]) -> np.ndarray:
+def annotate_xyxy(
+    image_source: np.ndarray,
+    boxes: torch.Tensor,
+    logits: torch.Tensor,
+    phrases: List[str],
+) -> np.ndarray:
     h, w, _ = image_source.shape
     boxes = boxes * torch.Tensor([w, h, w, h])
     xyxy = boxes.numpy()
@@ -22,20 +27,21 @@ def annotate_xyxy(image_source: np.ndarray, boxes: torch.Tensor, logits: torch.T
     # ]
     labels = []
     for i in range(len(boxes)):
-        anno = ''
+        anno = ""
         if phrases is not None:
             anno += phrases[i]
         if logits is not None:
             if len(anno) > 0:
-                anno += ' '
-            anno += f'{logits[i]:.2f}'
+                anno += " "
+            anno += f"{logits[i]:.2f}"
         labels.append(anno)
 
     box_annotator = sv.BoxAnnotator()
     # annotated_frame = cv2.cvtColor(image_source, cv2.COLOR_RGB2BGR)
     annotated_frame = image_source
     annotated_frame = box_annotator.annotate(
-        scene=annotated_frame, detections=detections, labels=labels)
+        scene=annotated_frame, detections=detections, labels=labels
+    )
     return annotated_frame
 
 
@@ -43,13 +49,14 @@ def show_mask(mask: torch.Tensor, image: Image, random_color=True) -> Image:
     if random_color:
         color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
     else:
-        color = np.array([30/255, 144/255, 255/255, 0.6])
+        color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
     h, w = mask.shape[-2:]
     mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
 
     annotated_frame_pil = image.convert("RGBA")
     mask_image_pil = Image.fromarray(
-        (mask_image.cpu().numpy() * 255).astype(np.uint8)).convert("RGBA")
+        (mask_image.cpu().numpy() * 255).astype(np.uint8)
+    ).convert("RGBA")
 
     # resize
     img_w, img_h = annotated_frame_pil.size
@@ -70,10 +77,12 @@ def show_mask(mask: torch.Tensor, image: Image, random_color=True) -> Image:
 # limitations under the License.
 
 import base64
+import concurrent.futures
 import itertools
 import logging
 import os
 import re
+import threading
 from io import BytesIO
 from pathlib import Path
 from shutil import copyfile, rmtree
@@ -85,8 +94,6 @@ import skimage
 from PIL import Image
 from PIL import Image as PILImage
 from tqdm import tqdm
-import concurrent.futures
-import threading
 
 logger = logging.getLogger("gradio_m3")
 
@@ -161,7 +168,6 @@ def get_modality(image_url: str | None, text: str | None = None):
     return _get_modality_text(text)
 
 
-
 def save_image_url_to_file(image_url: str, output_dir: Path) -> str:
     """Save the image from the URL to the output directory"""
     try:
@@ -173,7 +179,9 @@ def save_image_url_to_file(image_url: str, output_dir: Path) -> str:
         raise requests.exceptions.RequestException(f"Failed to download the image: {e}")
 
     content_disposition = url_response.headers.get("Content-Disposition")
-    file_name = os.path.join(output_dir, get_filename_from_cd(image_url, content_disposition))
+    file_name = os.path.join(
+        output_dir, get_filename_from_cd(image_url, content_disposition)
+    )
     with open(file_name, "wb") as f:
         f.write(url_response.content)
     return file_name
@@ -225,8 +233,8 @@ def image_to_data_url(image, format="JPEG", max_size=None):
     # Create a BytesIO buffer to save the image
     buffered = BytesIO()
     # Save the image to the buffer in the specified format
-    if img.mode == 'RGBA':
-        img = img.convert('RGB')
+    if img.mode == "RGBA":
+        img = img.convert("RGB")
     img.save(buffered, format=format)
     # Convert the buffer content into bytes
     img_byte = buffered.getvalue()
@@ -252,8 +260,8 @@ def resize_data_url(data_url, max_size):
     # Create a BytesIO buffer to save the image
     buffered = BytesIO()
     # Save the image to the buffer in the specified format
-    if img.mode == 'RGBA':
-        img = img.convert('RGB')
+    if img.mode == "RGBA":
+        img = img.convert("RGB")
     img.save(buffered, format="JPEG")
     # Convert the buffer content into bytes
     img_byte = buffered.getvalue()
@@ -273,8 +281,8 @@ class ImageCache:
             cache_dir.mkdir(parents=True)
         self.cache_dir = cache_dir
         self.cache_images = {}
-        self._lock = threading.Lock() 
-    
+        self._lock = threading.Lock()
+
     def apply_window_level(self, slice_data):
         """
         应用窗宽窗位处理
@@ -286,13 +294,15 @@ class ImageCache:
         WINDOW_WIDTH = 1500
         window_min = WINDOW_LEVEL - WINDOW_WIDTH / 2
         window_max = WINDOW_LEVEL + WINDOW_WIDTH / 2
-        
+
         # 应用窗口变换
         slice_windowed = np.clip(slice_data, window_min, window_max)
-        
+
         # 归一化到0-255
-        slice_normalized = (slice_windowed - window_min) / (window_max - window_min) * 255
-        
+        slice_normalized = (
+            (slice_windowed - window_min) / (window_max - window_min) * 255
+        )
+
         return slice_normalized.astype(np.uint8)
 
     def cache(self, image_urls_or_paths):
@@ -306,7 +316,9 @@ class ImageCache:
             print(items, "++++++++")
             for item in items:
                 if item.startswith("http"):
-                    self.cache_images[item] = save_image_url_to_file(item, self.cache_dir)
+                    self.cache_images[item] = save_image_url_to_file(
+                        item, self.cache_dir
+                    )
                 elif os.path.exists(item):
                     # move the file to the cache directory
                     file_name = os.path.basename(item)
@@ -316,10 +328,16 @@ class ImageCache:
                 if self.cache_images[item].endswith(".nii.gz"):
                     data = nib.load(self.cache_images[item]).get_fdata()
                     for slice_index in tqdm(range(data.shape[2])):
-                        image_filename = get_slice_filenames(self.cache_images[item], slice_index)
-                        if not os.path.exists(os.path.join(self.cache_dir, image_filename)):
+                        image_filename = get_slice_filenames(
+                            self.cache_images[item], slice_index
+                        )
+                        if not os.path.exists(
+                            os.path.join(self.cache_dir, image_filename)
+                        ):
                             pic = Pic(self.apply_window_level(data[:, :, slice_index]))
-                            Pic.save(pic.img, os.path.join(self.cache_dir, image_filename))
+                            Pic.save(
+                                pic.img, os.path.join(self.cache_dir, image_filename)
+                            )
                             # print(os.path.join(self.cache_dir, image_filename), "---")
             # except Exception as e:
             #     logger.error(f"处理NIfTI文件时出错: {str(e)}", exc_info=True)
@@ -327,7 +345,7 @@ class ImageCache:
             #     continue
             logger.debug(f"第 {idx+1}/{len(items_list)} 项处理完成")
         logger.debug("所有项目缓存处理完成")
-    
+
     def cleanup(self):
         """Clean up the cache directory."""
         logger.debug(f"Cleaning up the cache")

@@ -1,22 +1,22 @@
 """Send a test message."""
+
 import argparse
+import base64
 import json
 import time
 from io import BytesIO
+
 import cv2
-from groundingdino.util.inference import annotate
 import numpy as np
-
-
 import requests
-from PIL import Image
-import base64
-
 import torch
 import torchvision.transforms.functional as F
+from groundingdino.util.inference import annotate
+from PIL import Image
+
 
 def load_image(image_path):
-    img = Image.open(image_path).convert('RGB')
+    img = Image.open(image_path).convert("RGB")
     # import ipdb; ipdb.set_trace()
     # resize if needed
     w, h = img.size
@@ -30,6 +30,7 @@ def load_image(image_path):
         # import ipdb; ipdb.set_trace()
         img = F.resize(img, (new_h, new_w))
     return img
+
 
 def encode(image: Image):
     buffered = BytesIO()
@@ -91,10 +92,12 @@ def main():
     # visualize
     res = response.json()
     boxes = torch.Tensor(res["boxes"])
-    logits =  torch.Tensor(res["logits"])
+    logits = torch.Tensor(res["logits"])
     phrases = res["phrases"]
     image_source = np.array(Image.open(args.image_path).convert("RGB"))
-    annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
+    annotated_frame = annotate(
+        image_source=image_source, boxes=boxes, logits=logits, phrases=phrases
+    )
     cv2.imwrite("annotated_image.jpg", annotated_frame)
 
 
@@ -105,23 +108,28 @@ if __name__ == "__main__":
         "--controller-address", type=str, default="http://localhost:21001"
     )
     parser.add_argument("--worker-address", type=str)
-    parser.add_argument("--model-name", type=str, default='grounding dino')
+    parser.add_argument("--model-name", type=str, default="grounding dino")
 
     # model parameters
+    parser.add_argument("--caption", type=str, default="dogs .")
     parser.add_argument(
-        "--caption", type=str, default="dogs ."
+        "--image_path",
+        type=str,
+        default="/home/liushilong/code/GroundingFolder/Grounded-Segment-Anything/assets/demo2.jpg",
     )
     parser.add_argument(
-        "--image_path", type=str, default="/home/liushilong/code/GroundingFolder/Grounded-Segment-Anything/assets/demo2.jpg"
+        "--box_threshold",
+        type=float,
+        default=0.3,
     )
     parser.add_argument(
-        "--box_threshold", type=float, default=0.3,
+        "--text_threshold",
+        type=float,
+        default=0.25,
     )
     parser.add_argument(
-        "--text_threshold", type=float, default=0.25,
-    )
-    parser.add_argument(
-        "--send_image", action="store_true",
+        "--send_image",
+        action="store_true",
     )
     args = parser.parse_args()
 

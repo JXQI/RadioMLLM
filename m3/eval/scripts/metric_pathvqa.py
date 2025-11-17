@@ -49,7 +49,7 @@ def extract_gpt_values(json_data):
         for conversation in item["conversations"]:
             if conversation["from"] == "gpt":
                 value = conversation["value"].strip().lower()
-                if ('yes' in value) or ('no' in value): 
+                if ("yes" in value) or ("no" in value):
                     gpt_values[id] = value
     return gpt_values
 
@@ -67,7 +67,7 @@ def calculate_accuracy(gpt_values, text_values):
     """Calculate the accuracy of the model."""
     correct = 0
     total = len(gpt_values)
-    print(total,"==")
+    print(total, "==")
     for id, gpt_value in gpt_values.items():
         if id in text_values and gpt_value == text_values[id]:
             correct += 1

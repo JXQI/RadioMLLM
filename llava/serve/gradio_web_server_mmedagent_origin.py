@@ -18,13 +18,14 @@
 # from PIL import Image as _Image  # using _ to minimize namespace pollution
 
 import gradio as gr
+
+from llava.conversation import SeparatorStyle, conv_templates, default_conversation
+
 # from gradio import processing_utils, utils
 # from gradio_client import utils as client_utils
 
 # import requests
 
-from llava.conversation import (default_conversation, conv_templates,
-                                SeparatorStyle)
 # from llava.constants import LOGDIR
 # from llava.utils import (build_logger, server_error_msg,
 #                          violates_moderation, moderation_msg)
@@ -286,7 +287,7 @@ from llava.conversation import (default_conversation, conv_templates,
 #             if bounding_box is not None:
 #                 text_input_new = text[0] + f"\nInput box: {bounding_box}"
 #                 text = (text_input_new, text[1], text[2], text[3])
-                
+
 #         if ref_image_dict is not None:
 #             # text = (text[0], text[1], text[2], text[3], {
 #             #     'ref_image': ref_image_dict['image'],
@@ -357,14 +358,14 @@ from llava.conversation import (default_conversation, conv_templates,
 
 #         new_state.append_message(new_state.roles[0], state.messages[-2][1])
 #         new_state.append_message(new_state.roles[1], None)
-        
+
 #         # for reference image
 #         new_state.reference_image = getattr(state, 'reference_image', None)
 #         new_state.reference_mask = getattr(state, 'reference_mask', None)
-        
+
 #         # update
 #         state = new_state
-        
+
 #         print("Messages：", state.messages)
 
 #     # Query worker address
@@ -406,7 +407,7 @@ from llava.conversation import (default_conversation, conv_templates,
 #         "max_new_tokens": min(int(max_new_tokens), 1536),
 #         "stop": state.sep if state.sep_style in [SeparatorStyle.SINGLE, SeparatorStyle.MPT] else state.sep2,
 #         "images": state.get_images(),
-#         "openai_key": api_key  
+#         "openai_key": api_key
 #     }
 #     logger.info(f"==== request ====\n{pload}\n==== request ====")
 
@@ -507,7 +508,7 @@ from llava.conversation import (default_conversation, conv_templates,
 #             api_paras['refimg'] = reference_image
 #             api_paras['refmask'] = reference_mask
 #             # extract ref image and mask
-            
+
 
 #         # import ipdb; ipdb.set_trace()
 #         tool_worker_addr = get_worker_addr(controller_url, api_name)
@@ -762,7 +763,7 @@ from llava.conversation import (default_conversation, conv_templates,
 #                     gr.Markdown(
 #                         "The reference image is for some specific tools, like SEEM.")
 #                     ref_image_box = ImageMask()
-                
+
 #                 with gr.Accordion("Parameters", open=False, visible=False) as parameter_row:
 #                     image_process_mode = gr.Radio(
 #                         ["Crop", "Resize", "Pad"],
@@ -811,8 +812,8 @@ from llava.conversation import (default_conversation, conv_templates,
 #                     [f"{cur_dir}/examples/MCUCXR_0075_0.png",
 #                         "Identify the lungs and segment them in this x-ray image."],
 #                 ], inputs=[imagebox, textbox], label="Grounding + Segmentation Examples: ")
-                
-                
+
+
 #             with gr.Column():
 #                 gr.Examples(examples=[
 #                     [f"{cur_dir}/examples/0a4fbc9ade84a7abd1680eb8ba031a9d.jpg",
@@ -827,7 +828,7 @@ from llava.conversation import (default_conversation, conv_templates,
 #                     "Can you generate a report based on this image?"]
 #                 ], inputs=[imagebox, textbox], label="Medical Report Generation Examples: ")
 #                 false_report = """
-#                                This case highlights a critical oversight in a complex medical situation. While the initial focus on the patient's syncope was well-executed, subsequent findings of a 4.9 cm aortic aneurysm with celiac artery involvement were not sufficiently followed up. 
+#                                This case highlights a critical oversight in a complex medical situation. While the initial focus on the patient's syncope was well-executed, subsequent findings of a 4.9 cm aortic aneurysm with celiac artery involvement were not sufficiently followed up.
 #                                Comprehensive imaging of the entire aorta at the discovery point was crucial and could have potentially led to a more favorable outcome. It should be noted that the radiologist conducting the pulmonary artery CT scan should have autonomously extended the imaging to the full aorta without needing further orders.
 #                                """
 
@@ -838,8 +839,6 @@ from llava.conversation import (default_conversation, conv_templates,
 #                 )
 
 
-
-
 #         if not embed_mode:
 #             gr.Markdown(tos_markdown)
 #             gr.Markdown(learn_more_markdown)
@@ -847,16 +846,16 @@ from llava.conversation import (default_conversation, conv_templates,
 
 #         # Register listeners
 
-#         textbox.submit(add_text, [state, textbox, imagebox, ref_image_box, image_process_mode, with_debug_parameter_state], 
+#         textbox.submit(add_text, [state, textbox, imagebox, ref_image_box, image_process_mode, with_debug_parameter_state],
 #                     [state, chatbot, textbox, imagebox, ref_image_box, debug_btn])
 #                     # ).then(http_bot, [state, model_selector, temperature, top_p, max_output_tokens, with_debug_parameter_state, api_key_input],
 #                     #     [state, chatbot, debug_btn])
 
-#         submit_btn.click(add_text, [state, textbox, imagebox, ref_image_box, image_process_mode, with_debug_parameter_state], 
+#         submit_btn.click(add_text, [state, textbox, imagebox, ref_image_box, image_process_mode, with_debug_parameter_state],
 #                         [state, chatbot, textbox, imagebox, ref_image_box, debug_btn])
 #         #             ).then(http_bot, [state, model_selector, temperature, top_p, max_output_tokens, with_debug_parameter_state, api_key_input],
 #         #                 [state, chatbot, debug_btn])
-        
+
 #         # debug_btn.click(change_debug_state, [state, with_debug_parameter_state], [
 #         #                 state, chatbot, textbox, imagebox] + [debug_btn, with_debug_parameter_state])
 
@@ -902,6 +901,7 @@ from llava.conversation import (default_conversation, conv_templates,
 #     print("Local URL: ", local_url)
 #     print("Share URL: ", share_url)
 
+
 def add_text(text):
     state = default_conversation.copy()
     state.append_message("kkk", None)
@@ -911,18 +911,24 @@ def add_text(text):
     print(chatbot_info)
     return chatbot_info
 
+
 with gr.Blocks(title="MMedAgent", theme=gr.themes.Base()) as demo:
-    textbox = gr.Textbox(show_label=False, placeholder="Enter text and press ENTER", visible=True, container=True)
+    textbox = gr.Textbox(
+        show_label=False,
+        placeholder="Enter text and press ENTER",
+        visible=True,
+        container=True,
+    )
     with gr.Column(scale=6):
-        chatbot = gr.Chatbot(
-            elem_id="chatbot", label="MMedAgent Chatbot", height=550)
+        chatbot = gr.Chatbot(elem_id="chatbot", label="MMedAgent Chatbot", height=550)
         with gr.Row():
             with gr.Column(scale=8):
                 textbox
             with gr.Column(scale=1, min_width=60):
                 submit_btn = gr.Button(value="Submit", visible=True)
-    
+
     submit_btn.click(add_text, [textbox], [chatbot])
 
-_app, local_url, share_url = demo.queue(concurrency_count=8, status_update_rate=10, api_open=True).launch(
-        server_name="0.0.0.0", server_port=7860, share=True, debug=True)
+_app, local_url, share_url = demo.queue(
+    concurrency_count=8, status_update_rate=10, api_open=True
+).launch(server_name="0.0.0.0", server_port=7860, share=True, debug=True)

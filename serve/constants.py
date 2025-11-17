@@ -1,5 +1,5 @@
-from enum import IntEnum
 import os
+from enum import IntEnum
 
 REPO_PATH = os.path.dirname(os.path.dirname(__file__))
 
