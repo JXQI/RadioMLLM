@@ -59,10 +59,10 @@ RESULT_PATH="$OUTPUT_ROOT/results.json"
 #         # --single-pred-prompt \
          
 
-# python $PROJECT_PATH/m3/eval/scripts/metric_expert.py \
-#     --input $DATA_PATH \
-#     --answers $OUTPUT_PATH \
-#     --output $RESULT_PATH 
+python $PROJECT_PATH/m3/eval/scripts/metric_expert.py \
+    --input $DATA_PATH \
+    --answers $OUTPUT_PATH \
+    --output $RESULT_PATH 
 
 
 # 胸肺
@@ -93,8 +93,8 @@ RESULT_PATH="$OUTPUT_ROOT/results.json"
 #         # --single-pred-prompt \
          
 
-python $PROJECT_PATH/m3/eval/scripts/metric_expert.py \
-    --input $DATA_PATH \
-    --answers $OUTPUT_PATH \
-    --output $RESULT_PATH 
+# python $PROJECT_PATH/m3/eval/scripts/metric_expert.py \
+#     --input $DATA_PATH \
+#     --answers $OUTPUT_PATH \
+#     --output $RESULT_PATH 
 
