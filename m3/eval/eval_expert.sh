@@ -31,9 +31,44 @@ export OUTPUT_FOLDER_NAME=$2
 export CONV_MODE=$3
 
 
+# 心脏
 DATA_PATH="/home/tx-deepocean/data2/jxq/data/mmedagent/processed/heart/expert_heart_conv_v3_1_test.json"
 IMAGE_DIR="/home/tx-deepocean/data2/jxq/data/mmedagent/processed/heart/"
 OUTPUT_ROOT="$OUTPUT_FOLDER_NAME/expert/heart"
+OUTPUT_PATH="$OUTPUT_ROOT/outputs.jsonl"
+RESULT_PATH="$OUTPUT_ROOT/results.json"
+
+
+# python -m llava.eval.model_vqa_expert \
+#         --model-path $MODEL_PATH \
+#         --question-file $DATA_PATH \
+#         --image-folder $IMAGE_DIR \
+#         --answers-file $OUTPUT_PATH \
+#         --num-chunks 1 \
+#         --chunk-idx 0 \
+#         --conv-mode $CONV_MODE
+#         # --single-pred-prompt \
+#         
+
+# torchrun --nproc_per_node=4 -m llava.eval.model_vqa_expert \
+#         --model-path $MODEL_PATH \
+#         --question-file $DATA_PATH \
+#         --image-folder $IMAGE_DIR \
+#         --answers-file $OUTPUT_PATH \
+#         --conv-mode $CONV_MODE
+#         # --single-pred-prompt \
+         
+
+# python $PROJECT_PATH/m3/eval/scripts/metric_expert.py \
+#     --input $DATA_PATH \
+#     --answers $OUTPUT_PATH \
+#     --output $RESULT_PATH 
+
+
+# 胸肺
+DATA_PATH="/home/tx-deepocean/data2/jxq/data/mmedagent/processed/chest/expert_chest_conv_v3_1_test.json"
+IMAGE_DIR="/home/tx-deepocean/data2/jxq/data/mmedagent/processed/chest"
+OUTPUT_ROOT="$OUTPUT_FOLDER_NAME/expert/chest"
 OUTPUT_PATH="$OUTPUT_ROOT/outputs.jsonl"
 RESULT_PATH="$OUTPUT_ROOT/results.json"
 
