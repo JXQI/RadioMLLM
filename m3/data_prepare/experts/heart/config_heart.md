@@ -18,7 +18,7 @@
 | HEART       |  Modality: 3D CT, Part: heart, ROI: the heart and coronary arteries, Task: detection and segmentation, Overview: Model for detecting plaque,, stent, myocardialbridge. Accuary: great recall, Valid args are: None  |
 
 ### OutFormat 
-``` json
+```json
 "conversations": [
         {{
             "from": "human",
@@ -50,50 +50,43 @@
             "actions": [],
             "value": "聚合专家模型的结果，来得到最后的答案"
         }}
-] 
+]
 ```
 ### Examples 
-[
-    ``` json
-    "conversations": [
-            {{
-                "from": "human",
-                "value": "<image>\n Can you locate the lesion in this CT image?"
-            }},
-            {{
-                "from": "gpt",
-                "thoughts": "This is a heart 3d ct image, utilizing the HEART expert model will help accurately identify the lesion within the CT image",
-                "actions": [
-                    {{
-                        "API_name": "HEART",
-                        "API_params": {{
-                            "image": "<imagepath>",
-                            "prompts": [
-                                "HEART_CTA"
-                            ]
-                        }}
+``` json
+"conversations": [
+        {{
+            "from": "human",
+            "value": "<image>\n Can you locate the lesion in this CT image?"
+        }},
+        {{
+            "from": "gpt",
+            "thoughts": "This is a heart 3d ct image, utilizing the HEART expert model will help accurately identify the lesion within the CT image",
+            "actions": [
+                {{
+                    "API_name": "HEART",
+                    "API_params": {{
+                        "image": "<imagepath>",
+                        "prompts": [
+                            "HEART_CTA"
+                        ]
                     }}
-                ],
-                "value": "HEART is on the task to detect the lesion in this ct image. Please wait."
-            }},
-            {{
-                "from": "human",
-                "value":  "左主干（LM）未见斑块及明显狭窄。左前降支中段（mLAD）局部走形于心肌内，长度约【13.5mm】(Img0_vessel2-m-1)；未见斑块及明显狭窄；远段（dLAD）局部走形于心肌内，深度约【0.9mm】，长度约【13.5mm】(Img0_vessel2-d-1)；未见斑块及明显狭窄。左回旋支（LCX）未见斑块及明显狭窄。右冠状动脉（RCA）未见斑块及明显狭窄。"
-            }},
-            {{
-                "from": "gpt",
-                "thoughts": "Thanks to the output of HEART. I can answer the question better.",
-                "actions": [],
-                "value": "The lesion_list: <Img0_vessel2-m-1>, <Img0_vessel2-d-1>"
-            }}
-    ]
-    ```,
-    ```json
-    "conversations": [
-
-    ]
-    ```
-]
+                }}
+            ],
+            "value": "HEART is on the task to detect the lesion in this ct image. Please wait."
+        }},
+        {{
+            "from": "human",
+            "value":  "左主干（LM）未见斑块及明显狭窄。左前降支中段（mLAD）局部走形于心肌内，长度约【13.5mm】(Img0_vessel2-m-1)；未见斑块及明显狭窄；远段（dLAD）局部走形于心肌内，深度约【0.9mm】，长度约【13.5mm】(Img0_vessel2-d-1)；未见斑块及明显狭窄。左回旋支（LCX）未见斑块及明显狭窄。右冠状动脉（RCA）未见斑块及明显狭窄。"
+        }},
+        {{
+            "from": "gpt",
+            "thoughts": "Thanks to the output of HEART. I can answer the question better.",
+            "actions": [],
+            "value": "The lesion_list: <Img0_vessel2-m-1>, <Img0_vessel2-d-1>"
+        }}
+],
+```
 ## Part
 heart
 

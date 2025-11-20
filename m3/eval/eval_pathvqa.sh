@@ -55,13 +55,13 @@ RESULT_PATH="$OUTPUT_ROOT/results.json"
 #         --generation-config "$GENERATION_CONFIG" \
 #         --conv-mode $CONV_MODE 
 
-# torchrun --nproc_per_node=4 -m llava.eval.model_vqa_science \
-#         --model-path $MODEL_PATH \
-#         --question-file $DATA_PATH \
-#         --image-folder $IMAGE_DIR \
-#         --answers-file $OUTPUT_PATH \
-#         # --single-pred-prompt \
-#         --conv-mode $CONV_MODE 
+torchrun --nproc_per_node=4 -m llava.eval.model_vqa_science \
+        --model-path $MODEL_PATH \
+        --question-file $DATA_PATH \
+        --image-folder $IMAGE_DIR \
+        --answers-file $OUTPUT_PATH \
+        # --single-pred-prompt \
+        --conv-mode $CONV_MODE 
 
 python $PROJECT_PATH//m3/eval/scripts/metric_pathvqa.py \
     --input $DATA_PATH \

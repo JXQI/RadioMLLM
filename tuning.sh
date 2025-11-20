@@ -14,8 +14,8 @@ deepspeed llava/train/train_mem.py \
     --image_aspect_ratio pad \
     --group_by_modality_length False \
     --bf16 True \
-    --output_dir ./checkpoints/llava-med-v1.5-mistral-7b-lora-mistral_instruct-heart2-chest2_slake1_path1_rad1_v4 \
-    --num_train_epochs 2 \
+    --output_dir ./checkpoints/llava-med-v1.5-mistral-7b-lora-mistral_instruct-heart2-chest2_slake1_path1_rad1_v5 \
+    --num_train_epochs 5 \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 2 \
